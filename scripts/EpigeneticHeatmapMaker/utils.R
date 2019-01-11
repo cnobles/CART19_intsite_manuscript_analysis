@@ -319,7 +319,7 @@ sites_to_ROC_matched <- function(sites_mrcs, sampleName_GTSP, output_dir) {
 sites_to_ROC_ordinary <- function(sites_mrcs, sampleName_GTSP, output_dir) {
   sites_mrcs <- as.data.frame(sites_mrcs)
 
-  write.table(sites_mrcs, file='sites_mrcs.epi')
+  #write.table(sites_mrcs, file='sites_mrcs.epi')
 
   annotation_columns <- get_annotation_columns(sites_mrcs)
   roc.res <- ROC.ORC(

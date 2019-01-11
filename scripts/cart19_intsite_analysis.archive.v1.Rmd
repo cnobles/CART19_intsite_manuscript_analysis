@@ -120,6 +120,7 @@ epigenetic_features_files <- list.files(epigenetic_features_path) %>%
   grep("Jurkat", ., invert = TRUE, value = TRUE) %>%
   file.path(epigenetic_features_path, .)
 
+
 # Import HGNC reference data for annotation and consistency ----
 hgnc_complete <- fread(
   paste0("zcat ", file.path(utilsDir, "hgnc_complete_set.180207.txt.gz")),
@@ -353,14 +354,6 @@ top_ten_pc_sonicAbund <- as.character(read.table(
   sep = "\t"
 )[1,1])
 
-total_tdn_sites <- summaries$timepoint$num_UniqueSites[
-  summaries$timepoint$timepoint == "d0"
-]
-
-total_pat_sites <- sum(summaries$timepoint$num_UniqueSites[
-  summaries$timepoint$timepoint != "d0"
-])
-
 
 ### Load stats about genes identified by clones 
 gene_stats <- read.csv(
@@ -474,7 +467,7 @@ go_genes <- unique(unlist(all_GOBP_list))
 ```
 
 ---
-## Figure 2. Longitudinal evaluation of inferred population sizes of CAR19-transduced T cells.
+## Figure 1. Experimental strategy and examples of results.
 ```{r fig1B, fig.width=7.5, fig.height=3.5}
 vcn_summary <- within(
   list(), {
@@ -976,7 +969,7 @@ response_barplot$barplot
 Figure 1C. C) Representative barplots from different clinical response groups showing the proportion of the most abundant 100 clones from each patient measured by SonicAbundance. T cells at day 0 indicate the analysis of the pre-infusion product, while other samples were collected post-infusion from peripherial blood (PBL). Each color indicates a different clone within a single patient while the height of the color indicating the relative abundance of the clone within that sample. No clones were shared across patients. Light grey indicates the remaining clones binned as low abundance and their proportion of the population. 
 
 
-## Figure 2. Markers of insertional mutagenesis and clonal expansion in CAR19-modified cells.
+## Figure 2. Clonal expansionin CART19-modified cells assessed by tracking sites of integrated vectors.
 ```{r clonal_skewing_across_patients}
 intsite_clone_skew_plots <- within(
   list(), {
@@ -1099,6 +1092,10 @@ intsite_clone_skew_plots <- within(
     d28_CR_PRtd_abund_plot <- ggplot(
         d28_CR_PRtd, aes(x = seq_len(nrow(d28_CR_PRtd)), y = estAbund)) +
       geom_point(aes(color = factor(abund_status))) +
+      geom_text_repel(
+        data = d28_CR_PRtd[1:10,], 
+        aes(x = 1:10, y = estAbund, label = gene_id_wo_annot),
+        segment.alpha = 0.5, size = 3, nudge_x = 2000) +
       scale_x_continuous(labels = comma) +
       scale_y_continuous(
         breaks = c(1, 10, 100, 1000), labels = c("1", "10", "100", "1,000"), 
@@ -1210,7 +1207,7 @@ intsite_clone_skew_plots <- within(
     
   }
 )
-```
+``` 
 
 ```{r fig2ABC, fig.width=7, fig.height=3}
 grid.arrange(
@@ -1220,12 +1217,12 @@ grid.arrange(
     intsite_clone_skew_plots$d28_PR_NR_abund_plot), 
   nrow = 1)
 ```
-Figure 3ABC. A-C) Rank-ordered plots display the abundance of each identified clone from their respective groups – transduction (TDN) products, CR/PRtd – Day 28, and PR/NR – Day 28. Highly abundant clones were determined by identifying a cutoff abundance value for the top 1% of all expanded clones within patients, cutoff = 9 cells. Clones at or above this cutoff are colored red, and the top 10 most abundant clones are labeled with their proximal gene symbol.
+Figure 2ABC. A-C) Rank-ordered plots display the abundance of each identified clone from their respective groups – transduction (TDN) products, CR/PRtd – Day 28, and PR/NR – Day 28. Highly abundant clones were determined by identifying a cutoff abundance value for the top 1% of all expanded clones within patients, cutoff = 9 cells. Clones at or above this cutoff are colored red, and the top 10 most abundant clones are labeled with their proximal gene symbol.
 
 ```{r fig2D, fig.width=4, fig.height=3}
 gene_freq_bivar <- within(
   list(), {
-    # 
+    
     freq_bivar <- dplyr::filter(
         gene_impact, 
         TP_num_patients >= 2,
@@ -1241,6 +1238,19 @@ gene_freq_bivar <- within(
       dplyr::ungroup() %>%
       dplyr::mutate(adj_freq_test = p.adjust(freq_fisher_test, method = "BH"))
       
+    key_enrich_freq_genes <- dplyr::filter(
+        freq_bivar, adj_freq_test <= 0.05, pct_chg > 0
+      ) %>%
+      dplyr::arrange(adj_freq_test) %>%
+      head(n = 10)
+
+    key_deplet_freq_genes <- dplyr::filter(
+        freq_bivar, adj_freq_test <= 0.05, pct_chg < 0
+      ) %>%
+      dplyr::arrange(adj_freq_test) %>%
+      head(n = 10)
+
+        
     plot <- ggplot() +
       geom_abline(slope = 1, intercept = 0) +
       geom_point(
@@ -1248,17 +1258,22 @@ gene_freq_bivar <- within(
         aes(x = TDN_freq, y = TP_freq, 
             size = TP_num_sites, color = freq_fisher_test)) +
       geom_point(
-        data = dplyr::filter(freq_bivar, freq_fisher_test <= 0.05, pct_chg > 0),
+        data = dplyr::filter(freq_bivar, adj_freq_test <= 0.05, pct_chg > 0),
         aes(x = TDN_freq, y = TP_freq, size = TP_num_sites),
         shape = 21, color = "blue") +
       geom_point(
-        data = dplyr::filter(freq_bivar, freq_fisher_test <= 0.05, pct_chg < 0),
+        data = dplyr::filter(freq_bivar, adj_freq_test <= 0.05, pct_chg < 0),
         aes(x = TDN_freq, y = TP_freq, size = TP_num_sites),
         shape = 21, color = "red") +
       geom_text_repel(
-        data = dplyr::filter(freq_bivar, gene_name %in% key_gois, pct_chg >= 0),
+        data = key_enrich_freq_genes,
         aes(x = TDN_freq, y = TP_freq, label = gene_name),
         nudge_x = -0.5, nudge_y = 1, segment.alpha = 0.25,
+        box.padding = unit(0.3, "lines"), size = 3) +
+      geom_text_repel(
+        data = key_deplet_freq_genes,
+        aes(x = TDN_freq, y = TP_freq, label = gene_name),
+        nudge_x = 0.5, nudge_y = -1, segment.alpha = 0.25,
         box.padding = unit(0.3, "lines"), size = 3) +
       scale_color_continuous(low = "#56B1F7", high = "#132B43") +
       scale_y_continuous(trans = log_trans(), breaks = log_breaks()) +
@@ -1278,9 +1293,9 @@ gene_freq_bivar <- within(
 
 gene_freq_bivar$plot
 ```
-Figure 3D. D) Bivariate plot comparing the integration frequency within transcription units of transduction products (x-axis) versus all patient samples. Color indicates the significance of enrichment or depletion of integration within the transcription unit. The top 10 gene symbols representing the transcription units are labeled. 
+Figure 2D. D) Bivariate plot comparing the integration frequency within transcription units of transduction products (x-axis) versus all patient samples. Color indicates the significance of enrichment or depletion of integration within the transcription unit. The top 10 gene symbols representing the transcription units are labeled. 
 
-```{r fig2E, fig.width=4.5, fig.height=3.5}
+```{r fig2E, fig.width=3, fig.height=3.5}
 tet2_resp <- within(
   list(), {
     freq_rank <- dplyr::filter(
@@ -1374,13 +1389,14 @@ tet2_resp <- within(
         axis.line = element_line(color = "black"),
         legend.position = "right",
         legend.direction = "vertical", legend.box = "vertical")
+    
     # 3"x3.5"
     tet2_resp_plot <- TET2_labels %>%
       dplyr::mutate(gene_name = ifelse(
         gene_name == "TET2", 
         "TET2\nwith\npatient 10", "TET2\nwithout\npatient 10")) %>%
       ggplot(aes(x = gene_name, y = freq_odds_ratio)) +
-      geom_bar(stat = "identity", fill = "white", color = "black") +
+      geom_bar(stat = "identity", fill = "grey75", color = "black") +
       geom_point() +
       geom_linerange(aes(ymin = freq_conf_low, ymax = freq_conf_high)) +
       geom_hline(yintercept = 1.0, linetype = "dotted") +
@@ -1399,6 +1415,7 @@ tet2_resp$tet2_resp_plot
 Figure 2E. TET2 frequency differential
 
 
+## Figure 3. Pathways marked by vector integration.
 ```{r fig3AB, fig.width=9, fig.height=6, eval=TRUE}
 go_kegg_heatmaps <- within(
   list(), {
@@ -1974,8 +1991,8 @@ specimen_population_summary <- within(
         p.val = combn(seq_along(chao1_sig), 2, function(i){
           wilcox.test(x = chao1_sig[[i[1]]], y = chao1_sig[[i[2]]])$p.value
           }, simplify = TRUE)) %>%
-      separate(V1, into = c("response1", "timepoint1"), sep = " - ") %>%
-      separate(V2, into = c("response2", "timepoint2"), sep = " - ") %>%
+      tidyr::separate(V1, into = c("response1", "timepoint1"), sep = " - ") %>%
+      tidyr::separate(V2, into = c("response2", "timepoint2"), sep = " - ") %>%
       dplyr::filter(
         ifelse(
           response1 == response2, 
@@ -2024,8 +2041,8 @@ specimen_population_summary <- within(
         p.val = combn(seq_along(pct_txn_sig), 2, function(i){
           wilcox.test(x = pct_txn_sig[[i[1]]], y = pct_txn_sig[[i[2]]])$p.value
           }, simplify = TRUE)) %>%
-      separate(V1, into = c("response1", "timepoint1"), sep = " - ") %>%
-      separate(V2, into = c("response2", "timepoint2"), sep = " - ") %>%
+      tidyr::separate(V1, into = c("response1", "timepoint1"), sep = " - ") %>%
+      tidyr::separate(V2, into = c("response2", "timepoint2"), sep = " - ") %>%
       dplyr::filter(
         ifelse(
           response1 == response2, 
@@ -2093,7 +2110,7 @@ pandoc.table(
 ```
 Figure 4DE. D) Box plot representation of Chao1 estimated population sizes for responders (CR and PRtd), comparing the transduction product and day 28 samples (PR and NR).  E) Box plot representations of Chao1 estimated population sizes for nonresponders, comparing the transduction products and day 28 samples.
 
-## Figure 5. Predicting clinical outcome from transduction products.
+## Figure 5. Predicting clinical outcome from integration site data.
 ```{r model_setup}
 model_analysis <- within(
   list(), {
@@ -2238,7 +2255,7 @@ model_analysis <- within(
     }
 
     # Linear Discriminant Analysis (LDA) function for identifying components 
-    # that separate two or more classes given a dimensional input dataset 
+    # that tidyr::separate two or more classes given a dimensional input dataset 
     # (D, matrix) with classifications (cl). Scale will scale the data prior 
     # to analysis, change to FALSE if data has already been scaled. Log 
     # transform the data (log_trans) prior to analysis to analyze the data on 
@@ -2742,123 +2759,6 @@ model_analysis <- within(
 )
 ```
 
-```{r model_heatmap, eval=FALSE}
-model_heatmap <- within(
-  model_analysis, {
-    
-    # Heatmap for tdn model ----
-    wt_pca_cont_tdn <- tdn_pca$rotation 
-    coef_lasso_tdn <- coef(tdn_min_model)
-    coef_lasso_tdn <- coef_lasso_tdn[2:nrow(coef_lasso_tdn), , drop = FALSE]
-    coef_lasso_tdn <- apply(coef_lasso_tdn, 2, function(x) -x / sum(abs(x)))
-    colnames(coef_lasso_tdn) <- "tdn_lasso_model"
-    
-    wt_tdn_mod_composite <- rbind(
-      t(coef_lasso_tdn),
-      wt_pca_cont_tdn[,seq_len(tdn_pca_cutoff)])
-
-    tdn_heatmap_data <- as.data.frame(wt_tdn_mod_composite) %>%
-      dplyr::mutate(
-        metric = row.names(.),
-        feat_grp = names(grouped_features)[match(metric, grouped_features)],
-        feat_grp = ifelse(
-          is.na(feat_grp) & grepl("model", metric), "Model", feat_grp),
-        feat_grp = factor(
-          feat_grp, 
-          levels = c(
-            "Model", "Population", "Genomic", "Epigenetic", "Bound Proteins"
-          )
-        )
-      ) %>%
-      dplyr::arrange(feat_grp, desc(PC1)) %>%
-      tidyr::gather("PC", "loading", -feat_grp, -metric) %>%
-      dplyr::mutate(
-        metric = factor(metric, levels = rev(unique(metric))),
-        PC = factor(PC, levels = paste0("PC", seq_len(tdn_pca_cutoff)))) %>%
-      dplyr::filter(feat_grp == "Model" & loading != 0 | feat_grp != "Model")
-    
-    # 7.5"x10"
-    tdn_loading_heatmap <- ggplot(tdn_heatmap_data, aes(x = PC, y = metric)) +
-      geom_tile(aes(fill = loading), color = "black") +
-      facet_grid(feat_grp ~ ., scales = "free", space = "free") +
-      scale_x_discrete(position = "top") +
-      scale_fill_distiller(palette = "RdBu", direction = -1) +
-      guides(fill = guide_colorbar(
-        title.position = "left", title.hjust = 0.5, direction = "horizontal"
-      )) +
-      labs(x = "Principle Components", y = "Features", fill = "Loadings") +
-      custom_theme + 
-      theme(
-        legend.position = "bottom",
-        strip.placement = "outside",
-        strip.text.y = element_text(angle = 0),
-        axis.text.x.top = element_text(
-          angle = 90, hjust = 0, vjust = 0.5, size = 7),
-        axis.text.y = element_text(size = 7),
-        axis.line = element_blank(),
-        axis.ticks.y = element_blank(),
-        aspect.ratio =
-          n_distinct(tdn_heatmap_data$PC)/n_distinct(tdn_heatmap_data$metric)
-      )
-    
-    # Heatmap for d28 model ----
-    wt_pca_cont_d28 <- d28_pca$rotation 
-    coef_lasso_d28 <- coef(d28_min_model)
-    coef_lasso_d28 <- coef_lasso_d28[2:nrow(coef_lasso_d28), , drop = FALSE]
-    coef_lasso_d28 <- apply(coef_lasso_d28, 2, function(x) -x / sum(abs(x)))
-    colnames(coef_lasso_d28) <- "d28_lasso_model"
-    
-    wt_d28_mod_composite <- rbind(
-      t(coef_lasso_d28),
-      wt_pca_cont_d28[,seq_len(d28_pca_cutoff)])
-
-    d28_heatmap_data <- as.data.frame(wt_d28_mod_composite) %>%
-      dplyr::mutate(
-        metric = row.names(.),
-        feat_grp = names(grouped_features)[match(metric, grouped_features)],
-        feat_grp = ifelse(
-          is.na(feat_grp) & grepl("model", metric), "Model", feat_grp),
-        feat_grp = factor(
-          feat_grp, 
-          levels = c(
-            "Model", "Population", "Genomic", "Epigenetic", "Bound Proteins"
-          )
-        )
-      ) %>%
-      dplyr::arrange(feat_grp, desc(PC1)) %>%
-      tidyr::gather("PC", "loading", -feat_grp, -metric) %>%
-      dplyr::mutate(
-        metric = factor(metric, levels = rev(unique(metric))),
-        PC = factor(PC, levels = paste0("PC", seq_len(d28_pca_cutoff)))) %>%
-      dplyr::filter(feat_grp == "Model" & loading != 0 | feat_grp != "Model")
-    
-    d28_loading_heatmap <- ggplot(d28_heatmap_data, aes(x = PC, y = metric)) +
-      geom_tile(aes(fill = loading), color = "black") +
-      facet_grid(feat_grp ~ ., scales = "free", space = "free") +
-      scale_x_discrete(position = "top") +
-      scale_fill_distiller(palette = "RdBu", direction = -1) +
-      guides(fill = guide_colorbar(
-        title.position = "left", title.hjust = 0.5, direction = "horizontal"
-      )) +
-      labs(x = "Principle Components", y = "Features", fill = "Loadings") +
-      custom_theme + 
-      theme(
-        legend.position = "bottom",
-        strip.placement = "outside",
-        strip.text.y = element_text(angle = 0),
-        axis.text.x.top = element_text(
-          angle = 90, hjust = 0, vjust = 0.5, size = 7),
-        axis.text.y = element_text(size = 7),
-        axis.line = element_blank(),
-        axis.ticks.y = element_blank(),
-        aspect.ratio =
-          n_distinct(d28_heatmap_data$PC)/n_distinct(d28_heatmap_data$metric)
-      )
-    
-  }
-)
-```
-
 ```{r fig5A, fig.height=3.5, fig.width=7}
 model_analysis <- within(
   model_analysis, {
@@ -2893,7 +2793,7 @@ Figure 5AB. A total of 91 features spanning population metrics, genomic, and epi
 model_analysis <- within(
   model_analysis, {
     
-    min_pct <- 2.0
+    min_pct <- 1.0
     
     wt_pca_cont_tdn <- tdn_pca$rotation 
     coef_lasso_tdn <- coef(tdn_min_model)
@@ -3033,8 +2933,23 @@ Figure 5CD. Bar plots indicate the contribution of different features or metrics
 
 ## Table S1. Patient Information
 ```{r pat_table}
+patient_sites_data <- all_sites %>%
+  as.data.frame(row.names = NULL) %>%
+  dplyr::mutate(posid = generate_posid(all_sites)) %>%
+  dplyr::group_by(patient, samplename, posid) %>%
+  dplyr::summarise(
+    reads = sum(count), cells = n()
+  ) %>%
+  dplyr::group_by(patient) %>%
+  dplyr::summarise(
+    reads = sum(reads), cells = sum(cells), sites = n_distinct(posid)
+  ) %>%
+  dplyr::ungroup()
+
 sup_tbl_s1 <- patient_data %>%
-  dplyr::select(patient, disease, clin_trial, response, determinant_response) %>%
+  dplyr::select(
+    patient, disease, clin_trial, response, determinant_response
+    ) %>%
   dplyr::filter(!is.na(response)) %>%
   dplyr::arrange(as.numeric(clin_trial), patient) %>%
   dplyr::mutate(
@@ -3045,9 +2960,12 @@ sup_tbl_s1 <- patient_data %>%
     response = gsub("\n", " ", response),
     response = gsub("w", "w/", response)
   ) %>%
+  dplyr::left_join(patient_sites_data, by = "patient") %>%
   dplyr::rename(
     "Patient ID" = patient, "Disease" = disease, "Clin. Trial" = clin_trial, 
-    "Response" = response, "Resp. Class" = determinant_response
+    "Response" = response, "Resp. Class" = determinant_response,
+    "Reads" = reads, "Cells Sampled" = cells,
+    "Unique Int. Sites" = sites
   )
   
 write.csv(
@@ -3102,4 +3020,225 @@ write.csv(
   row.names = FALSE
 )
 
+```
+
+
+## Comparision to Shifrut et al. 2018
+
+```{r shifrut_calcs, eval=FALSE}
+shifrut_comparison <- within(
+  list(), {
+    
+    # Check the overlap between the top genes identified from positive and 
+    # negative effectors to T-cell growth.
+
+    #gene_limit <- 25
+    
+    ## Supporting data from Shifrut et. al. 2018
+    shifrut_gw_screen <- data.table::fread(
+      paste0("zcat ", file.path(utilsDir, "gw_SLICE_exp_data.csv.gz")),
+      data.table = FALSE
+    )
+    
+    shifrut_rep_screen <- data.table::fread(
+      paste0("zcat ", file.path(utilsDir, "rep_SLICE_exp_data.csv.gz")),
+      data.table = FALSE
+    )
+
+    # Make sure the gene names are consistent across datasets
+    shifrut_screen_genes <- alias_arbiter(
+      IDs = unique(shifrut_rep_screen$id), 
+      RefIDs = hgnc_complete$symbol,
+      aliasIDs = hgnc_complete$extended_alias,
+      sep = "|", 
+      remove_absent_IDs = NULL, 
+      quiet = TRUE
+    )
+    
+    total_overlapping_genes <- intersect(
+      gene_impact$gene_name, shifrut_screen_genes
+    )
+
+    ### Identify reproducible negatively associated genes
+    shifrut_neg_genes <- dplyr::arrange(
+        shifrut_rep_screen, `neg|fdr`, `neg|score`
+      ) %>%
+      dplyr::filter(`neg|fdr` <= 0.05)
+    
+    shifrut_neg_genes <- alias_arbiter(
+      IDs = shifrut_neg_genes$id, 
+      RefIDs = hgnc_complete$symbol,
+      aliasIDs = hgnc_complete$extended_alias,
+      sep = "|", 
+      remove_absent_IDs = NULL, 
+      quiet = TRUE
+    )
+    
+    ### Identify reproducible positively associated genes
+    shifrut_pos_genes <- dplyr::arrange(
+        shifrut_rep_screen, `pos|fdr`, `pos|score`
+      ) %>%
+      dplyr::filter(`pos|fdr` <= 0.05)
+
+    shifrut_pos_genes <- alias_arbiter(
+      IDs = shifrut_pos_genes$id, 
+      RefIDs = hgnc_complete$symbol,
+      aliasIDs = hgnc_complete$extended_alias,
+      sep = "|", 
+      remove_absent_IDs = NULL, 
+      quiet = TRUE
+    )
+    
+    # Create list object of genes
+    goi_analysis <- read.csv(
+        file.path(
+          outputDir, 
+          grep("_cart19_goi_data.csv", list.files(outputDir), value = TRUE)
+        )
+      ) %>%
+      dplyr::mutate(Gene_Name = gsub("'", "", Gene_Name)) 
+
+    # GOI potential genes and analysis ----   
+    potential_genes <- apply(
+      as.matrix(goi_analysis[
+        ,c("Depletion", "Enrichment", "Abundance", "Longitudinal")]), 
+      2, function(x){
+             goi_analysis$Gene_Name[x]
+           })
+    
+    composite_genes <- unique(unlist(
+      potential_genes[c("Enrichment", "Abundance", "Longitudinal")]))
+
+    criteria_order <- c("Depletion", "Enrichment", "Abundance", "Longitudinal")
+    
+    gene_set_list <- c(potential_genes, list("Composite" = composite_genes))
+    
+    # Compare to the top 25 genes from each gene set
+
+    stats_tbl <- dplyr::bind_rows(lapply(
+          gene_set_list, 
+          function(genes, pos_genes, neg_genes, total_considered){
+          
+            # Normalize lists
+            genes <- genes[genes %in% total_considered]
+            not_genes <- total_considered[!total_considered %in% genes]
+            pos_genes <- pos_genes[pos_genes %in% total_considered]
+            not_pos_genes <- total_considered[!total_considered %in% pos_genes]
+            neg_genes <- neg_genes[neg_genes %in% total_considered]
+            not_neg_genes <- total_considered[!total_considered %in% neg_genes]
+            
+            # Generate matrices
+            ## Positive
+            pos_mat <- matrix(
+              c(
+                length(intersect(genes, pos_genes)),
+                length(intersect(not_genes, pos_genes)),
+                length(intersect(genes, not_pos_genes)),
+                length(intersect(not_genes, not_pos_genes))
+              ),
+              ncol = 2
+            )
+            
+            ## Positive
+            neg_mat <- matrix(
+              c(
+                length(intersect(genes, neg_genes)),
+                length(intersect(not_genes, neg_genes)),
+                length(intersect(genes, not_neg_genes)),
+                length(intersect(not_genes, not_neg_genes))
+              ),
+              ncol = 2
+            )
+    
+            # Construct output data.frame
+            data.frame(
+              "set.size" = length(genes),
+              "pos.size" = length(pos_genes),
+              "pos.ovlp" = length(intersect(genes, pos_genes)),
+              "pos.odds" = fisher.test(pos_mat)$estimate,
+              "pos.pval" = fisher.test(pos_mat)$p.value,
+              "neg.size" = length(neg_genes),
+              "neg.ovlp" = length(intersect(genes, neg_genes)),
+              "neg.odds" = fisher.test(neg_mat)$estimate,
+              "neg.pval" = fisher.test(neg_mat)$p.value
+            )
+            
+          },
+          pos_genes = shifrut_pos_genes,
+          neg_genes = shifrut_neg_genes,
+          total_considered = total_overlapping_genes
+        ),
+        .id = "gene_set"
+      ) %>%
+      dplyr::mutate(
+        pos.pval = p.adjust(pos.pval, method = "BH"),
+        neg.pval = p.adjust(neg.pval, method = "BH")
+      )
+      
+    
+    neg_plot <- ggplot() +
+      geom_point(
+        data = dplyr::filter(shifrut_rep_screen, `neg|p-value` < 0.1),
+        aes(x = `neg|rank`, y = log(`neg|score`))
+      ) +
+      geom_segment(
+        data = dplyr::filter(
+          shifrut_rep_screen, 
+          `neg|p-value` < 0.1, 
+          id %in% gene_set_list$Depletion
+        ),
+        aes(x = `neg|rank`, xend = `neg|rank`, y = log(`neg|score`), yend = 0),
+        color = "red"
+      ) +
+      geom_segment(
+        data = dplyr::filter(
+          shifrut_rep_screen, 
+          `neg|p-value` < 0.1, 
+          id %in% gene_set_list$Composite
+        ),
+        aes(x = `neg|rank`, xend = `neg|rank`, y = log(`neg|score`), yend = 0),
+        color = "blue"
+      ) +
+      scale_x_log10() +
+      labs(x = "Negative Rank", y = "Log(Score)") +
+      custom_theme
+    
+    pos_plot <- ggplot() +
+      geom_point(
+        data = dplyr::filter(shifrut_rep_screen, `pos|p-value` < 0.1),
+        aes(x = `pos|rank`, y = -log(`pos|score`))
+      ) +
+      geom_segment(
+        data = dplyr::filter(
+          shifrut_rep_screen, 
+          `pos|p-value` < 0.1, 
+          id %in% gene_set_list$Depletion
+        ),
+        aes(x = `pos|rank`, xend = `pos|rank`, y = -log(`pos|score`), yend = 0),
+        color = "red"
+      ) +
+      geom_segment(
+        data = dplyr::filter(
+          shifrut_rep_screen, 
+          `pos|p-value` < 0.1, 
+          id %in% gene_set_list$Composite
+        ),
+        aes(x = `pos|rank`, xend = `pos|rank`, y = -log(`pos|score`), yend = 0),
+        color = "blue"
+      ) +
+      scale_x_log10() +
+      labs(x = "Positive Rank", y = "-Log(Score)") +
+      custom_theme
+
+  }
+)
+
+grid.arrange(
+  grobs = list(shifrut_comparison$neg_plot, shifrut_comparison$pos_plot),
+  nrow = 1
+)
+
+pander::pandoc.table(
+  shifrut_comparison$stats_tbl, style = "simple", digits = 3, split.table = Inf
+)
 ```
