@@ -1,0 +1,23 @@
+MOOTHA_GLYCOLYSIS
+> Genes involved in glycolysis; based on literature and sequence annotation resources and converted to Affymetrix HG-U133A probe sets.
+ALDOA
+ALDOB
+ALDOC
+BID
+CD4
+ENO1
+ENO2
+ENO3
+FBP1
+FBP2
+GAPDHS
+GPI
+HK1
+PFKFB1
+PFKFB2
+PFKM
+PGAM2
+PGK1
+PGM1
+PKM2
+TPI1
