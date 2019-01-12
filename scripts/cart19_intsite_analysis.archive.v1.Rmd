@@ -1219,7 +1219,7 @@ grid.arrange(
 ```
 Figure 2ABC. A-C) Rank-ordered plots display the abundance of each identified clone from their respective groups – transduction (TDN) products, CR/PRtd – Day 28, and PR/NR – Day 28. Highly abundant clones were determined by identifying a cutoff abundance value for the top 1% of all expanded clones within patients, cutoff = 9 cells. Clones at or above this cutoff are colored red, and the top 10 most abundant clones are labeled with their proximal gene symbol.
 
-```{r fig2D, fig.width=4, fig.height=3}
+```{r fig2D, fig.width=5, fig.height=4}
 gene_freq_bivar <- within(
   list(), {
     
@@ -1250,7 +1250,6 @@ gene_freq_bivar <- within(
       dplyr::arrange(adj_freq_test) %>%
       head(n = 10)
 
-        
     plot <- ggplot() +
       geom_abline(slope = 1, intercept = 0) +
       geom_point(
@@ -1276,8 +1275,14 @@ gene_freq_bivar <- within(
         nudge_x = 0.5, nudge_y = -1, segment.alpha = 0.25,
         box.padding = unit(0.3, "lines"), size = 3) +
       scale_color_continuous(low = "#56B1F7", high = "#132B43") +
-      scale_y_continuous(trans = log_trans(), breaks = log_breaks()) +
-      scale_x_continuous(trans = log_trans(), breaks = log_breaks()) +
+      scale_y_continuous(
+        trans = log_trans(), 
+        breaks = log_breaks(), 
+        labels = scales::scientific) +
+      scale_x_continuous(
+        trans = log_trans(), 
+        breaks = log_breaks(), 
+        labels = scales::scientific) +
       labs(
         x = "Transduction Product Integration\nFrequency (1 / kb)",
         y = "Patient Sample Integration Frequency (1 / kb)",
@@ -1289,6 +1294,7 @@ gene_freq_bivar <- within(
         legend.box = "vertical",
         legend.direction = "vertical",
         axis.line = element_line(color = "black"))
+    
 })
 
 gene_freq_bivar$plot
