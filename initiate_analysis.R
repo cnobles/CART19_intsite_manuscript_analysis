@@ -82,8 +82,8 @@ cat("[", paste(Sys.time()), "] Running 'genic_impact.R'... (Processing step 6 of
 suppressMessages(source(file = file.path(scriptDir, "genic_impact.R")))
 
 # Determine the intergenic impact (only non-gene sites) ----
-cat("[", paste(Sys.time()), "] Running 'intergenic_impact.v2.R'... (Processing step 7 of 7)\n")
-suppressMessages(source(file = file.path(scriptDir, "intergenic_impact.v2.R")))
+cat("[", paste(Sys.time()), "] Running 'intergenic_impact.R'... (Processing step 7 of 7)\n")
+suppressMessages(source(file = file.path(scriptDir, "intergenic_impact.R")))
 
 # HeatmapMakers ----
 # After analytical processing, some data needs to be processed by utilities from
@@ -97,6 +97,13 @@ suppressMessages(source(file = file.path(scriptDir, "intergenic_impact.v2.R")))
 cat(
   "[", paste(Sys.time()), "] Generating heatmaps using GenomicHeatmapMaker and EpigeneticHeatmapMaker...\n"
 )
+
+req_data <- c("tdn_sites", "timepoint_sites")
+
+if( !all(sapply(req_data, exists)) ){
+  tdn_sites <- readRDS(file.path(outputDir, "cart19_tdn_sites.rds"))
+  timepoint_sites <- readRDS(file.path(outputDir, "cart19_timepoint_sites.rds"))
+}
  
 std_data <- dplyr::bind_rows(list(
     "TDN" = as.data.frame(tdn_sites, row.names = NULL), 
@@ -202,7 +209,7 @@ if( !file.exists("data/manuscript_epi_std_heatmap/roc.res.rds") ){
 
 if(
   file.exists("reports/cart19_goi_report.archive.v1.pdf") &
-  file.exists("reports/cart19_intsite_analysis.archive.v1.pdf") 
+  file.exists("reports/cart19_intsite_analysis.archive.v1.pdf")
   ){
   
   cat("[", paste(Sys.time()), "] Reports found in reports directory. Analysis complete.\n")

@@ -93,11 +93,6 @@ refGenes <- refGenes[
   seqnames(refGenes) %in% paste0("chr", c(1:22, "X", "Y", "M"))
 ]
 
-excluded_gene_names <- c(
-  "TET2-AS1", "HNRNPUL2-BSCL2", "ANKHD1-EIF4EBP3", "TONSL-AS1", 
-  "ATP6V1G2-DDX39B", "C7orf55-LUC7L2"
-)
-
 oncoGenesData <- read.delim(
   file.path(utilsDir, "allOnco.human.v3.tsv"),
   header = TRUE, 
@@ -242,7 +237,6 @@ NR_pats <- patient_data$patient[patient_data$determinant_response == "PR_NR"]
 ## Load integration site analysis data ----
 data_files <- list.files(outputDir)
 
-
 ### Load specimen_data
 file <- grep("specimen_data", data_files, value = TRUE)
 specimen_data <- readRDS(file.path(outputDir, file)) %>%
@@ -277,10 +271,8 @@ if( !all(patient_data$patient %in% specimen_data$patient) ){
     dplyr::arrange(specimenaccnum)
 }
 
-
 ### Load condensed integrations sites
 cond_uniq_sites <- readRDS(file.path(outputDir, "condensed_intsites.rds"))
-
 
 ### Load transduction product specific sites in a different format
 tdn_sites <- readRDS(file.path(outputDir, "cart19_tdn_sites.rds"))
@@ -318,26 +310,68 @@ total_pat_sites_NR <- length(unique(paste(
   ]
 ))
 
+### Load enriched cluster information from tdn products
+enriched_tdn_clus <- readRDS(
+  file.path(outputDir, "cart19_tdn_enriched_clusters.rds")
+)
+
+### Load enriched cluster information from patient timepoint samples
+enriched_timepoint_clus <- readRDS(
+  file.path(outputDir, "cart19_timepoint_enriched_clusters.rds")
+)
+
+### Load all clusters identified and combined clusters
+cluster_list <- readRDS(
+  file.path(outputDir, "cart19_clusters.rds"))
+pos_strand_timepoint_enriched_clus <- cluster_list$positive_strand_clusters
+neg_strand_timepoint_enriched_clus <- cluster_list$negative_strand_clusters
+enriched_high_clus <- cluster_list$high_abund_clusters
+cart19_clusters <- cluster_list$all_clusters
+red_clusters <- cluster_list$red_clusters
+
+
+### Load cluster gene information
+cluster_genes <- read.csv(
+  file.path(outputDir, "cart19_cluster_gene_info.csv")
+)
+
+cluster_gene_list <- cluster_genes$gene_name
 
 ### Load summaries: specimen, patient, timepoint, celltype 
 summaries <- readRDS(
   file.path(outputDir, "cart19_summaries.rds")
 )
 
+top_one_pc_sonicAbund <- as.character(read.table(
+  file.path(outputDir, "top_one_percent_of_gene_ids_by_sonicAbund.txt"),
+  header = FALSE, 
+  sep = "\t"
+)[1,1])
+
+top_ten_pc_sonicAbund <- as.character(read.table(
+  file.path(outputDir, "top_ten_percent_of_gene_ids_by_sonicAbund.txt"),
+  header = FALSE, 
+  sep = "\t"
+)[1,1])
+
+
+### Load stats about genes identified by clones 
+gene_stats <- read.csv(
+  file.path(outputDir, "cart19_gene_stats.csv")
+)
 
 ### Load stats about transcription unit regions
 gene_impact <- readRDS(
     file.path(outputDir, "cart19_gene_impact.rds")) %>%
-  dplyr::select(
-    -Within_Cluster, -Cluster_target.min, -ort_fisher_test, -ort_fisher_test_CR,
-    -ort_fisher_test_NR) %>%
-  dplyr::filter(!gene_name %in% excluded_gene_names) %>%
+  dplyr::filter(gene_name != "TET2-AS1") %>%
   dplyr::mutate(gene_name = alias_arbiter(
     IDs = gene_name,
     RefIDs = hgnc_complete$symbol,
     aliasIDs = hgnc_complete$extended_alias,
-    sep = "|", remove_absent_IDs = NULL, quiet = TRUE))
-
+    sep = "|", 
+    remove_absent_IDs = NULL, 
+    quiet = TRUE
+  ))
 
 
 ### Load the filtered unique integration sites as a reference
@@ -1417,7 +1451,6 @@ go_kegg_heatmaps <- within(
         !grepl("organization", term),
         !grepl("assembly", term),
         !grepl("migration", term))
-    
     select_GOBP_list <- select_GOBP_list[select_go_terms$id]
     
     
@@ -1429,7 +1462,6 @@ go_kegg_heatmaps <- within(
       grep("metabol", x = ., invert = TRUE, value = TRUE) %>%
       grep("myopathy", x = ., invert = TRUE, value = TRUE) %>%
       grep("multiple species", x = ., invert = TRUE, value = TRUE)
-   
     rel_kegg_terms <- rel_kegg_terms[
       grepl("signaling", rel_kegg_terms) | 
         grepl("differentiation", rel_kegg_terms) |
@@ -1438,7 +1470,6 @@ go_kegg_heatmaps <- within(
         grepl("micrornas", rel_kegg_terms) |
         grepl("some", rel_kegg_terms) |
         grepl("cycle", rel_kegg_terms)]
-    
     rel_kegg_terms <- names(rel_kegg_terms)
 
     # Import GOI report data and environment
@@ -1457,7 +1488,6 @@ go_kegg_heatmaps <- within(
       2, function(x){
              goi_analysis$Gene_Name[x]
            })
-    
     composite_genes <- unique(unlist(
       potential_genes[c("Enrichment", "Abundance", "Longitudinal")]))
 
@@ -2082,12 +2112,10 @@ specimen_population_summary <- within(
 specimen_population_summary$chao1_plot
 pandoc.table(
   specimen_population_summary$chao1_sig, 
-  style = "simple", split.table = Inf, digits = 3)
+  style = "simple", split.table = Inf)
 ```
-
 Figure 4DE. D) Box plot representation of Chao1 estimated population sizes for responders (CR and PRtd), comparing the transduction product and day 28 samples (PR and NR).  E) Box plot representations of Chao1 estimated population sizes for nonresponders, comparing the transduction products and day 28 samples.
 
-\newpage
 ## Figure 5. Predicting clinical outcome from integration site data.
 ```{r model_setup}
 model_analysis <- within(
@@ -2910,9 +2938,6 @@ Figure 5CD. Bar plots indicate the contribution of different features or metrics
 # Supplemental figures and tables
 
 ## Table S1. Patient Information
-
-Writen to file: /path/to/CART19_intsite_manuscript_analysis/data/sup_tbl_1_patient_info.csv
-
 ```{r pat_table}
 patient_sites_data <- all_sites %>%
   as.data.frame(row.names = NULL) %>%
@@ -2959,9 +2984,6 @@ write.csv(
 ```
 
 ## Table S2. Specimen / Sample Information
-
-Writen to file: /path/to/CART19_intsite_manuscript_analysis/data/sup_tbl_2_specimen_info.csv
-
 ```{r spec_table}
 specimen_sites_data <- all_sites %>%
   as.data.frame(row.names = NULL) %>%
@@ -3006,9 +3028,10 @@ write.csv(
 
 ```
 
-```{r additional_calcs, eval=FALSE}
+
 ## Comparision to Shifrut et al. 2018
 
+```{r shifrut_calcs, eval=FALSE}
 shifrut_comparison <- within(
   list(), {
     
@@ -3089,66 +3112,136 @@ shifrut_comparison <- within(
              goi_analysis$Gene_Name[x]
            })
     
-    depletion_genes <- potential_genes$Depletion
-    
     composite_genes <- unique(unlist(
       potential_genes[c("Enrichment", "Abundance", "Longitudinal")]))
 
-    # Compare depletion genes to negative and composite genes to positive
+    criteria_order <- c("Depletion", "Enrichment", "Abundance", "Longitudinal")
+    
+    gene_set_list <- c(potential_genes, list("Composite" = composite_genes))
+    
+    # Compare to the top 25 genes from each gene set
 
     stats_tbl <- dplyr::bind_rows(lapply(
-          c(1:2), 
-          function(i, genes, pos_genes, neg_genes, total_considered){
-            
-            gene_set <- genes[[i]]
-            
+          gene_set_list, 
+          function(genes, pos_genes, neg_genes, total_considered){
+          
             # Normalize lists
-            gene_set <- gene_set[gene_set %in% total_considered]
-            not_gene_set <- total_considered[!total_considered %in% gene_set]
-            
-            if(i == 1){
-              shi_genes <- neg_genes[neg_genes %in% total_considered]
-            }else{
-              shi_genes <- pos_genes[pos_genes %in% total_considered]
-            }
-            
-            not_shi_genes <- total_considered[!total_considered %in% shi_genes]
+            genes <- genes[genes %in% total_considered]
+            not_genes <- total_considered[!total_considered %in% genes]
+            pos_genes <- pos_genes[pos_genes %in% total_considered]
+            not_pos_genes <- total_considered[!total_considered %in% pos_genes]
+            neg_genes <- neg_genes[neg_genes %in% total_considered]
+            not_neg_genes <- total_considered[!total_considered %in% neg_genes]
             
             # Generate matrices
-            gene_mat <- matrix(
+            ## Positive
+            pos_mat <- matrix(
               c(
-                length(intersect(gene_set, shi_genes)),
-                length(intersect(not_gene_set, shi_genes)),
-                length(intersect(gene_set, not_shi_genes)),
-                length(intersect(not_gene_set, not_shi_genes))
+                length(intersect(genes, pos_genes)),
+                length(intersect(not_genes, pos_genes)),
+                length(intersect(genes, not_pos_genes)),
+                length(intersect(not_genes, not_pos_genes))
               ),
               ncol = 2
             )
             
+            ## Positive
+            neg_mat <- matrix(
+              c(
+                length(intersect(genes, neg_genes)),
+                length(intersect(not_genes, neg_genes)),
+                length(intersect(genes, not_neg_genes)),
+                length(intersect(not_genes, not_neg_genes))
+              ),
+              ncol = 2
+            )
+    
             # Construct output data.frame
             data.frame(
-              "gene.set" = names(genes)[[i]],
-              "set.size" = length(gene_set),
-              "shi.size" = length(shi_genes),
-              "ovlp.size" = length(intersect(gene_set, shi_genes)),
-              "enrich.odds" = fisher.test(gene_mat)$estimate,
-              "enrich.pval" = fisher.test(gene_mat)$p.value,
-              "ovlp.genes" = paste(
-                intersect(gene_set, shi_genes), collapse = ";"
-              )
+              "set.size" = length(genes),
+              "pos.size" = length(pos_genes),
+              "pos.ovlp" = length(intersect(genes, pos_genes)),
+              "pos.odds" = fisher.test(pos_mat)$estimate,
+              "pos.pval" = fisher.test(pos_mat)$p.value,
+              "neg.size" = length(neg_genes),
+              "neg.ovlp" = length(intersect(genes, neg_genes)),
+              "neg.odds" = fisher.test(neg_mat)$estimate,
+              "neg.pval" = fisher.test(neg_mat)$p.value
             )
             
           },
-          genes = list(
-            "Depletion" = depletion_genes, "Composite" = composite_genes
-          ),
           pos_genes = shifrut_pos_genes,
           neg_genes = shifrut_neg_genes,
           total_considered = total_overlapping_genes
-        )
+        ),
+        .id = "gene_set"
+      ) %>%
+      dplyr::mutate(
+        pos.pval = p.adjust(pos.pval, method = "BH"),
+        neg.pval = p.adjust(neg.pval, method = "BH")
       )
+      
+    
+    neg_plot <- ggplot() +
+      geom_point(
+        data = dplyr::filter(shifrut_rep_screen, `neg|p-value` < 0.1),
+        aes(x = `neg|rank`, y = log(`neg|score`))
+      ) +
+      geom_segment(
+        data = dplyr::filter(
+          shifrut_rep_screen, 
+          `neg|p-value` < 0.1, 
+          id %in% gene_set_list$Depletion
+        ),
+        aes(x = `neg|rank`, xend = `neg|rank`, y = log(`neg|score`), yend = 0),
+        color = "red"
+      ) +
+      geom_segment(
+        data = dplyr::filter(
+          shifrut_rep_screen, 
+          `neg|p-value` < 0.1, 
+          id %in% gene_set_list$Composite
+        ),
+        aes(x = `neg|rank`, xend = `neg|rank`, y = log(`neg|score`), yend = 0),
+        color = "blue"
+      ) +
+      scale_x_log10() +
+      labs(x = "Negative Rank", y = "Log(Score)") +
+      custom_theme
+    
+    pos_plot <- ggplot() +
+      geom_point(
+        data = dplyr::filter(shifrut_rep_screen, `pos|p-value` < 0.1),
+        aes(x = `pos|rank`, y = -log(`pos|score`))
+      ) +
+      geom_segment(
+        data = dplyr::filter(
+          shifrut_rep_screen, 
+          `pos|p-value` < 0.1, 
+          id %in% gene_set_list$Depletion
+        ),
+        aes(x = `pos|rank`, xend = `pos|rank`, y = -log(`pos|score`), yend = 0),
+        color = "red"
+      ) +
+      geom_segment(
+        data = dplyr::filter(
+          shifrut_rep_screen, 
+          `pos|p-value` < 0.1, 
+          id %in% gene_set_list$Composite
+        ),
+        aes(x = `pos|rank`, xend = `pos|rank`, y = -log(`pos|score`), yend = 0),
+        color = "blue"
+      ) +
+      scale_x_log10() +
+      labs(x = "Positive Rank", y = "-Log(Score)") +
+      custom_theme
 
   }
+)
+
+grid.arrange(
+  grobs = list(shifrut_comparison$neg_plot, shifrut_comparison$pos_plot),
+  nrow = 1
 )
 
 pander::pandoc.table(

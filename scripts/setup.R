@@ -107,11 +107,11 @@ if( !all(is_installed) ){
   if( !all(is_installed) ){
     stop("\n[", paste(Sys.time()), "] Not all required R-packages have been installed. Check dependencies.")
   }else{
-    message("\n[", paste(Sys.time()), "] All required packages installed from extra sources.")
+    cat("\n[", paste(Sys.time()), "] All required packages installed from extra sources.")
   }
   
 }else{
   
-  message("\n[", paste(Sys.time()), "] All required packages installed from sources.")
+  cat("\n[", paste(Sys.time()), "] All required packages installed from sources.")
   
 }
