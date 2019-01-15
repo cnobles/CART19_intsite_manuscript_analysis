@@ -822,7 +822,7 @@ write.csv(
 ```{r captions, include=FALSE}
 # Figure captions ----
 fig1cap <- "Intersecting gene lists identified through the various selection criteria."
-tbl2cap <- "The most consistantly observed genes from filtering by various criteria. The 'Critera' column is a count of how many times the gene was identified by these methods, while the 'Patients' column notes how many specimens collected from patients have had integration sites within the noted gene."
+tbl2cap <- "The most consistently observed genes from filtering by various criteria. The 'Criteria.' column is a count of how many times the gene was identified by these methods, while the 'Patients' column notes how many specimens collected from patients have had integration sites within the noted gene."
 ```
 
 \newpage
@@ -1052,7 +1052,7 @@ kable(
 
 The NCBI RefGenes data set was used to identify gene regions (hg38) while genes identified as onco-related were from the Bushman Lab curated list of [**onco-related genes**.](http://bushmanlab.org/links/genelists) 
 
-Gene Ontologies were extracted from the `GO.db` R-package (v3.4.1). KEGG pathways were acquired via interfacing with the KEGG web-server API through the `KEGGREST` R-package (v1.16.1). Gene lists, including RefSeq genes used for annotation of integration sites, were standardized to HGNC gene symbols (date: 2018-02-07). Groups identified in GO and KEGG analyses were determined from Jaccard distances between identified terms, followed by modularity-optimizing clustering from a weighted-undirected graph using a Louvain algorithm ([**Blondel *et al.* 2008**](doi:10.1088/1742-5468/2008/10/P10008)). Terms within groups of GO or KEGG terms have greater overlap of gene lists between themselves that between terms found in other groups. This method was implemented to help reduce the functional reduncancy commonly observed in GO and overlapping pathways observed with KEGG.
+Gene Ontologies were extracted from the `GO.db` R-package (v3.4.1). KEGG pathways were acquired via interfacing with the KEGG web-server API through the `KEGGREST` R-package (v1.16.1). Gene lists, including RefSeq genes used for annotation of integration sites, were standardized to HGNC gene symbols (date: 2018-02-07). Groups identified in GO and KEGG analyses were determined from Jaccard distances between identified terms, followed by modularity-optimizing clustering from a weighted-undirected graph using a Louvain algorithm ([**Blondel *et al.* 2008**](doi:10.1088/1742-5468/2008/10/P10008)). Terms within groups of GO or KEGG terms have greater overlap of gene lists between themselves that between terms found in other groups. This method was implemented to help reduce the functional redundancy commonly observed in GO and overlapping pathways observed with KEGG.
 
 \newpage
 # Comprehensive Genes of Interest Table
