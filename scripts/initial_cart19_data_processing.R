@@ -158,7 +158,7 @@ if( all(c(
     "d-10", "d-1", "d0", "d1", "d5", "d7", "d9", "d10", "d11", "d13", "d14", 
     "d15", "d17", "d21", "d23", "d25", "d28", "d30", "d35", "d36", "d42", "d49",
     "d50", "m2", "d63", "d75", "d90", "m3", "d92", "d120", "d121", "m4", "d133",
-    "d147", "m5", "d169", "m6", "d204", "m9", "m12", "d442", "m15", "m18", 
+    "d147", "m5", "d169", "m6", "d204", "m9", "m12", "y1", "d442", "m15", "m18", 
     "y1.5", "m20", "m21", "d720", "m24", "y2", "d801",  "y2.5", "m32", "y3", 
     "y4", "d1584", "y4.5", "m60", "y5", "y5.5", "y6", "y6.5", "y7", "y8"
   ) 
@@ -687,8 +687,11 @@ if( all(c(
   }
   
   # Completed ----
-  cat("[", paste(Sys.time()), "] Initial processing has competed.\n", 
-      "[", paste(Sys.time()), "] Output files can be found at: ", outputDir, "\n")
+  cat(
+    "[", paste(Sys.time()), "] Initial processing has competed.\n", 
+    "[", paste(Sys.time()), "] Output files can be found at: ", outputDir, "\n",
+    sep = ""
+  )
   
   if(all(c(
     any(grepl("specimen_data.rds", list.files(outputDir))),

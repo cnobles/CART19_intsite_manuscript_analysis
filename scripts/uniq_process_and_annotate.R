@@ -19,6 +19,10 @@ if(
     match(uniq_sites$specimen, specimen_data$specimenaccnum)
   ]
   
+  uniq_sites$timepoint <- specimen_data$timepoint[
+    match(uniq_sites$specimen, specimen_data$specimenaccnum)
+  ]
+  
   # Condense the integration site ranges to unique locations and abundances ----
   uniq_list <- split(uniq_sites, uniq_sites$gtsp)
   
@@ -52,6 +56,7 @@ if(
     colnam = "in_gene", 
     feature.colnam = "name2"
   )
+  
   cond_uniq_sites <- getNearestFeature(
     cond_uniq_sites,
     refGenes,
@@ -68,7 +73,8 @@ if(
   )
   
   cond_uniq_sites$gene_id_wo_annot <- sapply(
-    strsplit(cond_uniq_sites$gene_id_wo_annot, ","), "[[", 1)
+    strsplit(cond_uniq_sites$gene_id_wo_annot, ","), "[[", 1
+  )
   
   cond_uniq_sites$gene_id <- paste0(cond_uniq_sites$gene_id_wo_annot, " ")
   
