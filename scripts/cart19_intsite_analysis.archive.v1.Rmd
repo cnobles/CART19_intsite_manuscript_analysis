@@ -98,6 +98,8 @@ excluded_gene_names <- c(
   "ATP6V1G2-DDX39B", "C7orf55-LUC7L2"
 )
 
+excluded_sites <- c("PCCA" = "chr13-100350286", "NRP1" = "chr10+33114980")
+
 oncoGenesData <- read.delim(
   file.path(utilsDir, "allOnco.human.v3.tsv"),
   header = TRUE, 
@@ -338,12 +340,24 @@ gene_impact <- readRDS(
     aliasIDs = hgnc_complete$extended_alias,
     sep = "|", remove_absent_IDs = NULL, quiet = TRUE))
 
+goi_data <- read.csv(
+    file.path(outputDir, list.files(outputDir, pattern = "cart19_goi_data.csv"))
+  ) %>%
+  dplyr::mutate(Gene_Name = gsub("'", "", Gene_Name))
 
+goi_lists <- lapply(
+  c("Enrichment", "Depletion", "Abundance", "Longitudinal"), 
+  function(x) goi_data$Gene_Name[goi_data[, x, drop = TRUE]] 
+)
+
+names(goi_lists) <- c("Enrichment", "Depletion", "Abundance", "Longitudinal")
 
 ### Load the filtered unique integration sites as a reference
 all_sites <- grep("filtered_unique_intsites", data_files, value = TRUE)
 all_sites <- readRDS(file.path(outputDir, all_sites))
-all_sites <- all_sites[all_sites$specimen %in% summaries$specimen$specimen]
+all_sites <- all_sites[all_sites$specimen %in% cond_uniq_sites$specimen]
+all_sites <- all_sites[!generate_posid(all_sites) %in% excluded_sites]
+all_sites <- all_sites[!generate_posid(all_sites) %in% potential_mispriming]
 
 ```
 
@@ -2907,11 +2921,389 @@ grid.arrange(
 ```
 Figure 5CD. Bar plots indicate the contribution of different features or metrics to classification within each model. Positive contribution indicates direct correlation towards positive clinical outcome while negative contributions indicate a direct correlation to negative clinical outcomes. C) Transduction product model and D) day 28 periferial blood model.
 
+\newpage
+## Figure 6. 
+
+```{r gene_expression_comparision, fig.height=6, fig.width=4}
+gen_express <- within(
+  list(), {
+    
+    patient_tdn_specimens <- model_analysis$patient_tdn_specimens
+    
+    # Load baseline txn ----
+    txn_mock_stim <- data.table::fread(
+        input = file.path(
+          outputDir, "fraietta_et_al_2018_data", 
+          "cart19_transcript_assay_mockstim.csv"
+        ), 
+        sep = ",", header = TRUE, data.table = FALSE
+      ) %>%
+      rename("symbol" = Patient_ID)
+    
+    txn_mock_stim_mat <- as.matrix(txn_mock_stim[,2:ncol(txn_mock_stim)])
+    
+    rownames(txn_mock_stim_mat) <- alias_arbiter(
+      IDs = txn_mock_stim$symbol, RefIDs = hgnc_complete$symbol,
+      aliasIDs = hgnc_complete$extended_alias, sep = "|", 
+      remove_absent_IDs = NULL, quiet = TRUE
+    )
+    
+    txn_mock_stim_mat <- do.call(rbind, lapply(
+      split(as.data.frame(txn_mock_stim_mat), rownames(txn_mock_stim_mat)), 
+      function(x) apply(x, 2, sum)
+    ))
+    
+    # Load stimulated txn ----
+    txn_exp_stim <- data.table::fread(
+        input = file.path(
+          outputDir, "fraietta_et_al_2018_data", 
+          "cart19_transcript_assay_stimulated.csv"
+        ), 
+        sep = ",", header = TRUE, data.table = FALSE
+      ) %>%
+      rename("symbol" = Patient_ID)
+    
+    txn_exp_stim_mat <- as.matrix(txn_exp_stim[,2:ncol(txn_exp_stim)])
+    
+    rownames(txn_exp_stim_mat) <- alias_arbiter(
+      IDs = txn_exp_stim$symbol, RefIDs = hgnc_complete$symbol,
+      aliasIDs = hgnc_complete$extended_alias, sep = "|", 
+      remove_absent_IDs = NULL, quiet = TRUE
+    )
+    
+    txn_exp_stim_mat <- do.call(rbind, lapply(
+      split(as.data.frame(txn_exp_stim_mat), rownames(txn_exp_stim_mat)), 
+      function(x) apply(x, 2, sum)
+    ))
+    
+    # Normalized data to read density (R/K/M) ----
+    txn_mock_stim_mat <- apply(
+      txn_mock_stim_mat, 2, function(x) (x/1000)/(sum(x)/1E6)
+    )
+    
+    txn_exp_stim_mat <- apply(
+      txn_exp_stim_mat, 2, function(x) (x/1000)/(sum(x)/1E6)
+    )
+    
+    keep_genes <- apply(
+      cbind(txn_mock_stim_mat, txn_exp_stim_mat), 
+      1, function(x) all(x != 0)
+    )
+    
+    txn_mock_stim_mat <- txn_mock_stim_mat[keep_genes,]
+    txn_exp_stim_mat <- txn_exp_stim_mat[keep_genes,]
+    
+    txn_stim_mat <- txn_exp_stim_mat - txn_mock_stim_mat
+    
+    txn_exp_v_mock <- data.frame(
+      symbol = rownames(txn_mock_stim_mat),
+      mock = apply(log10(txn_mock_stim_mat), 1, mean),
+      exp = apply(log10(txn_exp_stim_mat), 1, mean),
+      wilcox = apply(cbind(txn_mock_stim_mat, txn_exp_stim_mat), 1, function(x){
+        
+        z <- wilcox.test(
+          x = x[1:ncol(txn_mock_stim_mat)], 
+          y = x[(ncol(txn_mock_stim_mat)+1):(2*ncol(txn_mock_stim_mat))])
+        
+        z$p.value
+        
+      }), 
+      row.names = NULL
+    )
+    
+    # Select patients and gene data ----
+    pats <- dplyr::intersect(std_clin_patients, colnames(txn_exp_stim_mat))
+    
+    pat_tdn_mat <- tdn_sites %>%
+      as.data.frame(row.names = NULL) %>%
+      dplyr::filter( patient %in% pats ) %>%
+      dplyr::filter( in_gene != FALSE | abs(nearest_geneDist) <= 5000 ) %>%
+      dplyr::left_join(patient_data, by = "patient") %>%
+      dplyr::select(
+        determinant_response, patient, posid, gene_id_wo_annot
+      ) %>%
+      dplyr::mutate(total_sites = n_distinct(patient, posid)) %>%
+      dplyr::group_by(determinant_response, patient) %>%
+      dplyr::mutate(pat_sites = n_distinct(patient, posid)) %>%
+      dplyr::group_by(determinant_response) %>%
+      dplyr::mutate(grp_sites = n_distinct(patient, posid)) %>%
+      dplyr::group_by(
+        determinant_response, patient, gene_id_wo_annot, 
+        total_sites, grp_sites, pat_sites
+      ) %>%
+      dplyr::summarise(sites = dplyr::n_distinct(patient, posid)) %>%
+      dplyr::ungroup() %>%
+      dplyr::mutate(pat_pct = sites / pat_sites)
+    
+    all_tdn_mat <- pat_tdn_mat %>%
+      dplyr::group_by(
+        determinant_response, gene_id_wo_annot, total_sites, grp_sites
+      ) %>%
+      dplyr::summarise(sites = sum(sites)) %>%
+      dplyr::ungroup() %>%
+      tidyr::spread(key = determinant_response, value = sites, fill = 0) %>%
+      dplyr::mutate(
+        CR_pct = CR_PRtd / grp_sites,
+        NR_pct = PR_NR / grp_sites,
+        Tot_pct = (CR_PRtd + PR_NR) / total_sites
+      ) %>% 
+      dplyr::group_by(gene_id_wo_annot) %>%
+      dplyr::summarise(
+        CR_pct = sum(CR_pct), NR_pct = sum(NR_pct), Tot_pct = sum(Tot_pct)
+      ) %>%
+      dplyr::ungroup() %>%
+      as.data.frame()
+    
+    row.names(all_tdn_mat) <- all_tdn_mat$gene_id_wo_annot
+    
+    all_tdn_mat <- as.matrix(all_tdn_mat[,2:ncol(all_tdn_mat)])
+
+    resp <- patient_tdn_specimens$determinant_response[
+      match(pats, patient_tdn_specimens$patient)
+    ]
+    
+    genes <- dplyr::intersect(rownames(all_tdn_mat), rownames(txn_exp_stim_mat))
+    
+    mean_txn_exp_mat <- do.call(cbind, lapply(unique(resp), function(r){
+      mat <- txn_exp_stim_mat[, pats %in% pats[resp == r]]
+      apply(mat, 1, mean)
+    }))
+    
+    colnames(mean_txn_exp_mat) <- unique(resp)
+    mean_txn_exp_mat <- mean_txn_exp_mat[genes,]
+    
+    stim_txn_mat <- do.call(cbind, lapply(unique(resp), function(r){
+      mat <- txn_stim_mat[, pats %in% pats[resp == r]]
+      apply(mat, 1, mean)
+    }))
+    
+    colnames(stim_txn_mat) <- unique(resp)
+    stim_txn_mat <- stim_txn_mat[genes,]
+    
+    # Determine Rank orders for gene expression ----
+    grp_cnt <- 10
+    
+    total_gene_txn_order <- apply(mean_txn_exp_mat, 1, mean) %>%
+      data.frame(txn_lvl = .) %>%
+      dplyr::mutate(gene = row.names(.)) %>%
+      dplyr::arrange(txn_lvl) %>%
+      dplyr::mutate(
+        rank_ord = seq_len(n()),
+        rank_grp = ceiling(rank_ord / (n() / grp_cnt)),
+        CR_pct = all_tdn_mat[gene, "CR_pct"],
+        NR_pct = all_tdn_mat[gene, "NR_pct"],
+        Tot_pct = all_tdn_mat[gene, "Tot_pct"]
+      )
+
+    CR_gene_txn_order <- mean_txn_exp_mat[, "CR_PRtd"] %>%
+      data.frame(txn_lvl = .) %>%
+      dplyr::mutate(gene = row.names(.)) %>%
+      dplyr::arrange(txn_lvl) %>%
+      dplyr::mutate(
+        rank_ord = seq_len(n()),
+        rank_grp = ceiling(rank_ord / (n() / grp_cnt)),
+        CR_pct = all_tdn_mat[gene, "CR_pct"],
+        NR_pct = all_tdn_mat[gene, "NR_pct"],
+        Tot_pct = all_tdn_mat[gene, "Tot_pct"]
+      )
+
+    NR_gene_txn_order <- mean_txn_exp_mat[, "PR_NR"] %>%
+      data.frame(txn_lvl = .) %>%
+      dplyr::mutate(gene = row.names(.)) %>%
+      dplyr::arrange(txn_lvl) %>%
+      dplyr::mutate(
+        rank_ord = seq_len(n()),
+        rank_grp = ceiling(rank_ord / (n() / grp_cnt)),
+        CR_pct = all_tdn_mat[gene, "CR_pct"],
+        NR_pct = all_tdn_mat[gene, "NR_pct"],
+        Tot_pct = all_tdn_mat[gene, "Tot_pct"]
+      )
+
+    
+    stim_gene_txn_order <- apply(stim_txn_mat, 1, mean) %>%
+      data.frame(txn_lvl = .) %>%
+      dplyr::mutate(gene = row.names(.)) %>%
+      dplyr::arrange(txn_lvl) %>%
+      dplyr::mutate(
+        rank_ord = seq_len(n()),
+        rank_grp = ceiling(rank_ord / (n() / grp_cnt)),
+        CR_pct = all_tdn_mat[gene, "CR_pct"],
+        NR_pct = all_tdn_mat[gene, "NR_pct"],
+        Tot_pct = all_tdn_mat[gene, "Tot_pct"]
+      )
+    
+    diff_gene_txn_order <- apply(stim_txn_mat, 1, diff) %>%
+      data.frame(txn_lvl = .) %>%
+      dplyr::mutate(
+        gene = row.names(.)
+      ) %>%
+      dplyr::arrange(txn_lvl) %>%
+      dplyr::mutate(
+        rank_ord = seq_len(n()),
+        rank_grp = ceiling(rank_ord / (n() / grp_cnt)),
+        CR_pct = all_tdn_mat[gene, "CR_pct"],
+        NR_pct = all_tdn_mat[gene, "NR_pct"],
+        Tot_pct = all_tdn_mat[gene, "Tot_pct"]
+      )
+    
+    keep_cnt <- 500
+    
+    grp_diff_genes <- diff_gene_txn_order %>%
+      dplyr::filter(rank_ord <= keep_cnt | rank_ord >= n()-keep_cnt) %>%
+      dplyr::mutate(
+        preference = ifelse(rank_ord <= keep_cnt, "NR favored", "CR favored")
+      ) %$%
+      structure(gene, names = preference)
+    
+    diff_gene_txn_order %>%
+      dplyr::filter(gene %in% grp_diff_genes) %>%
+      dplyr::mutate(
+        preference = factor(
+          names(grp_diff_genes)[match(gene, grp_diff_genes)], 
+          levels = c("NR favored", "CR favored")
+        )
+      ) %>%
+      dplyr::group_by(preference) %>%
+      dplyr::summarise(
+        CR_pct = sum(CR_pct),
+        NR_pct = sum(NR_pct)
+      ) %>%
+      dplyr::ungroup() %>%
+      tidyr::gather(key = "resp", value = "pct", -preference) %>% 
+      ggplot(aes(x = resp, y = pct)) +
+      geom_bar(stat = "identity") +
+      facet_grid(. ~ preference, scales = "free") +
+      custom_theme
+
+    pat_spec_grp_data <- pat_tdn_mat %>%
+      dplyr::rename(
+        gene = gene_id_wo_annot,
+        resp = determinant_response
+      ) %>%
+      dplyr::filter(gene %in% grp_diff_genes) %>%
+      dplyr::mutate(
+        preference = factor(
+          names(grp_diff_genes)[match(gene, grp_diff_genes)],
+          levels = c("NR favored", "CR favored")
+        ),
+        resp = factor(
+          gsub("_", "/", resp), levels = c("PR/NR", "CR/PRtd")
+        )
+      ) %>%
+      dplyr::group_by(resp, patient, preference) %>%
+      dplyr::summarise(pct = sum(pat_pct)) %>%
+      dplyr::ungroup() %>%
+      dplyr::filter(preference == "CR favored")
+    
+    pat_spec_sig_test <- pat_spec_grp_data %>%
+      dplyr::group_by(preference) %>%
+      dplyr::summarise(
+        sig = wilcox.test(pct ~ resp)$p.value
+      )
+    
+    pct_intsites_by_grp_plot <- ggplot() +
+      geom_boxplot(
+        data = pat_spec_grp_data, 
+        aes(x = resp, y = pct * 100, fill = resp), 
+        outlier.alpha = 0
+      ) +
+      geom_text(
+        data = pat_spec_sig_test, 
+        aes(
+          x = rep(1.5, nrow(pat_spec_sig_test)),
+          y = rep(12.5, nrow(pat_spec_sig_test)),
+          label = sprintf("p-value = %.3f", round(sig, digits = 3))
+        )
+      ) +
+      scale_fill_brewer(type = "qual", palette = "Set1") +
+      labs(
+        x = "Patient Response Groups", 
+        y = "Percent of Integration Sites",
+        title = "B."
+      ) +
+      custom_theme + 
+      theme(
+        legend.position = "none",
+        axis.line = element_line(color = "black"),
+        axis.text.x = element_text(face = "bold"),
+        plot.title = element_text(color = "black", size = 12, face = "bold")
+      )
+      
+    total_gene_exp_plot <- total_gene_txn_order %>%
+      dplyr::group_by(rank_grp) %>%
+      dplyr::summarise(CR = sum(CR_pct), NR = sum(NR_pct)) %>%
+      tidyr::gather(key = "type", value = "pct", -rank_grp) %>%
+      dplyr::ungroup() %>%
+      dplyr::mutate(
+        type = factor(
+          ifelse(type == "CR", "CR/PRtd", "PR/NR"), 
+          levels = c("PR/NR", "CR/PRtd")
+        )
+      ) %>%
+      ggplot(aes(x = rank_grp, y = pct * 100, color = type)) +
+      geom_point() + 
+      geom_line(alpha = 0.25) +
+      facet_grid(type ~ .) +
+      scale_x_continuous(breaks = 1:10, labels = 1:10) +
+      scale_color_brewer(type = "qual", palette = "Set1") +
+      labs(
+        x = "Stimulated Expression Rank Groups", 
+        y = "Percent of Integration Sites",
+        color = NULL,
+        title = "A."
+      ) +
+      custom_theme + 
+      theme(
+        legend.position = "none",
+        axis.line = element_line(color = "black"),
+        plot.title = element_text(color = "black", size = 12, face = "bold")
+      )
+    
+    criteria_palette <- structure(
+      colorRampPalette(RColorBrewer::brewer.pal(11, "Spectral"))(
+        n = length(unique(goi_data$Criteria))
+      ),
+      names = sort(unique(goi_data$Criteria))
+    )
+    
+    goi_total_rank_plot <- total_gene_txn_order %>% 
+      dplyr::filter(gene %in% unlist(goi_lists)) %>%
+      dplyr::arrange(rank_grp) %>%
+      dplyr::mutate(
+        criteria = goi_data$Criteria[match(gene, goi_data$Gene_Name)],
+        rank_grp = factor(rank_grp, levels = unique(rank_grp))
+      ) %>%
+      ggplot(aes(x = rank_grp)) +
+      geom_bar(aes(fill = criteria)) +
+      scale_fill_manual(values = criteria_palette) +
+      labs(
+        x = "Stimulated Expression Rank Groups",
+        y = "Gene Count",
+        fill = "Criteria"
+      ) +
+      custom_theme
+    
+    out_plot <- grid.arrange(
+      grobs = list(
+        total_gene_exp_plot, pct_intsites_by_grp_plot
+      ),
+      layout_matrix = matrix(c(1,1,1,2,2), ncol = 1)
+    )
+
+  }
+)
+
+gene_express$out_plot
+
+```
+Figure 6AB. ...
+
+\newpage
 # Supplemental figures and tables
 
 ## Table S1. Patient Information
 
-Writen to file: /path/to/CART19_intsite_manuscript_analysis/data/sup_tbl_1_patient_info.csv
+Written to file: /path/to/CART19_intsite_manuscript_analysis/data/sup_tbl_1_patient_info.csv
 
 ```{r pat_table}
 patient_sites_data <- all_sites %>%
@@ -2960,7 +3352,7 @@ write.csv(
 
 ## Table S2. Specimen / Sample Information
 
-Writen to file: /path/to/CART19_intsite_manuscript_analysis/data/sup_tbl_2_specimen_info.csv
+Written to file: /path/to/CART19_intsite_manuscript_analysis/data/sup_tbl_2_specimen_info.csv
 
 ```{r spec_table}
 specimen_sites_data <- all_sites %>%
@@ -3155,3 +3547,144 @@ pander::pandoc.table(
   shifrut_comparison$stats_tbl, style = "simple", digits = 3, split.table = Inf
 )
 ```
+
+## Supplementary Figures. Patient-specific Longitudinal Observation of Clones
+
+Written to file: /path/to/CART19_intsite_manuscript_analysis/reports/manuscript_figures/
+
+```{r longitudinal_clone_plots, eval=TRUE}
+long_clone_plots <- within(
+  list(), {
+    # Summarise each clones behavior
+    clone_data <- as.data.frame(cond_uniq_sites, row.names = NULL) %>%
+      filter(patient %in% std_clin_patients) %>%
+      select(
+        patient, timepoint, celltype, specimen, 
+        estAbund, relAbund, posid, gene_id
+      ) %>%
+      mutate(dtime = convert_time(as.character(timepoint))) %>%
+      group_by(patient, posid, gene_id) %>%
+      summarise(
+        tfs = paste(sort(unique(as.integer(timepoint))), collapse = ","),
+        min_tf = min(as.integer(timepoint)), 
+        max_tf = max(as.integer(timepoint)),
+        tps = paste(sort(unique(dtime)), collapse = ","),
+        min_tp = min(dtime), max_tp = max(dtime),
+        num_tp = n_distinct(timepoint),
+        num_ct = n_distinct(celltype), num_sp = n_distinct(specimen),
+        min_ab = min(estAbund), max_ab = max(estAbund),
+        min_rb = min(relAbund), max_rb = max(relAbund)
+      ) %>%
+      arrange(desc(num_tp), desc(max_ab), desc(min_ab)) %>%
+      ungroup()
+    
+    # Isolate data for plot
+    plot_clones <- clone_data %>%
+      group_by(patient) %>%
+      arrange(desc(max_tp - min_tp), desc(max_rb)) %>%
+      slice(1:10) %$%
+      unique(paste0(patient, ":", posid))
+
+    plot_data <- as.data.frame(cond_uniq_sites, row.names = NULL) %>%
+      select(patient, timepoint, posid, gene_id, estAbund, relAbund) %>%
+      filter(paste0(patient, ":", posid) %in% plot_clones) %>%
+      mutate(
+        tp = convert_time(as.character(timepoint)),
+        tp = ifelse(tp == 0, 7.5, tp),
+        tp = ifelse(tp == 1, 8.5, tp),
+        pf = as.integer(
+          factor(paste0(patient, ":", posid), levels = rev(plot_clones)))
+      ) %>%
+      group_by(patient, timepoint, tp, pf, posid, gene_id) %>%
+      summarise(
+        logAbund = log(mean(estAbund), base = 10),
+        estAbund = mean(estAbund),
+        relAbund = mean(relAbund)
+      ) %>%
+      group_by(patient, posid, gene_id) %>%
+      mutate(num_tp = n_distinct(tp)) %>%
+      ungroup() %>%
+      group_by(num_tp) %>%
+      mutate(pf = as.integer(factor(pf, levels = sort(unique(pf))))) %>%
+      ungroup
+
+    # Formated for 7"w by 3"h
+    split_plot_data <- split(plot_data, plot_data$patient)
+     
+    long_plots <- lapply(split_plot_data, function(df){
+      
+      df <- df %>%
+        arrange(desc(estAbund)) %>%
+        mutate(
+          patient = paste0("Patient: ", patient),
+          plot_id = paste0(gene_id, "\n", posid),
+          plot_id = factor(plot_id, levels = unique(plot_id))
+        )
+      
+      axis_breaks <- c(
+        7.5, 10, 14, 28, 60, 90, 120, 240, 365, 730, 1095, 1826
+      )
+      
+      axis_labels <- c(
+        "TDN", "d10", "d14", "d28", "m2", "m3", "m4", "m8", 
+        "y1", "y2", "y3", "y5"
+      )
+      
+      max_tp <- max(df$tp)
+      max_idx <- min(which(axis_breaks > max_tp))
+      max_idx <- max(c(max_idx, 5))
+      
+      axis_breaks <- axis_breaks[seq_len(max_idx)]
+      axis_labels <- axis_labels[seq_len(max_idx)]
+      
+      ggplot(df, aes(x = tp, y = relAbund)) +
+        geom_line(aes(group = plot_id), alpha = 0.15) +
+        geom_point(aes(color = plot_id), size = 2.5) +
+        facet_grid(. ~ patient) +
+        scale_color_brewer(type = "seq", palette = "Paired") +
+        scale_x_log10(
+          breaks = axis_breaks,
+          labels = axis_labels,
+          limits = c(7.5, max(df$tp))
+        ) + 
+        labs(
+          x = "Treatment Time", 
+          y = "Relative Abundance", 
+          color = NULL
+        ) +
+        guides(
+          color = guide_legend(
+            direction = "vertical",
+            keyheight = unit(0.27, units = "in"))
+        ) +
+        custom_theme +
+        theme(
+          legend.position = "right",
+          legend.text = element_text(size = 7.5),
+          axis.line.y = element_line(color = "black"),
+          axis.line.x = element_line(color = "black"),
+          axis.text.x = element_text(size = 9),
+          strip.text.y = element_text(angle = 0)
+        )
+      
+    })
+    
+    null <- lapply(seq_along(long_plots), function(i){
+      
+      file_pdf <- paste0("supfig.", names(long_plots)[i], ".long_plot.pdf")
+      
+      ggsave(
+        filename = file_pdf, 
+        plot = long_plots[[i]], 
+        device = "pdf", 
+        path = file.path(workingDir, "reports/manuscript_figures"), 
+        width = 7, 
+        height = 3, 
+        units = "in"
+      )
+      
+    })
+    
+})
+```
+

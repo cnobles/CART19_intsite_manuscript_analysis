@@ -26,7 +26,6 @@ if(
   genome_sequence@seqinfo <- genome_sequence@seqinfo[
     paste0("chr", c(1:22, "X", "Y", "M"))]
   
-  
   ## windows
   window_size_refSeq <- c("10k"=1e4, "100k"=1e5, "1M"=1e6)
   window_size_CpG_counts <- c("1k"=1e3, "10k"=1e4)

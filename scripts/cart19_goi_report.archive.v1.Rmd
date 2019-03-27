@@ -111,20 +111,20 @@ intsiteSpecimenMetadata <- read.csv(
   file.path(outputDir, "cart19_intsite_sample_list.csv")
 )
 
-refGenes <- readRDS(file.path(utilsDir, "hg38.refSeq.rds"))
+ref_genes <- readRDS(file.path(utilsDir, "hg38.refSeq.rds"))
 
-oncoGenesData <- read.delim(
+onco_genes_data <- read.delim(
   file.path(utilsDir, "allOnco.human.v3.tsv"),
   header = TRUE, 
   sep = "\t",
   stringsAsFactors = FALSE
 )
 
-oncoGenes <- unique(oncoGenesData[,"symbol"])
-nonOncoGenes <- unique(refGenes$name2[!refGenes$name2 %in% oncoGenes])
-tumSups <- read.delim(file.path(utilsDir, "TSEGene.tsv"))$GeneSymbol
+onco_genes <- unique(onco_genes_data[,"symbol"])
+non_onco_genes <- unique(ref_genes$name2[!ref_genes$name2 %in% onco_genes])
+tum_sups <- read.delim(file.path(utilsDir, "TSEGene.tsv"))$GeneSymbol
 
-badActors <- read.delim(
+bad_actors <- read.delim(
   file.path(utilsDir, "humanLymph.v1.list"),
   header = FALSE,
   sep = "\t",
@@ -198,6 +198,24 @@ hgnc_complete <- dplyr::filter(hgnc_complete, !grepl("withdrawn", symbol)) %>%
       alias_symbol, "|", prev_symbol, "|", ensembl_gene_id, "|", 
       refseq_accession, "|", uniprot_ids))
 
+if( file.exists(file.path(utilsDir, "COSMIC_cancer_gene_census.csv")) ){
+  
+  cosmic_genes <- read.csv(
+      file.path(utilsDir, "COSMIC_cancer_gene_census.csv")
+    ) %>%
+    dplyr::mutate(
+      gene_name = hgnc_complete$symbol[match(
+        Entrez.GeneId, stringr::str_extract(hgnc_complete$entrez_id, "[\\d]+")
+      )],
+      gene_name = ifelse(is.na(gene_name), Gene.Symbol, gene_name)
+    ) %$%
+    gene_name
+    
+}else{
+  
+  cosmic_genes <- vector(mode = "character")
+  
+}
 
 # Load integration site data if available ----
 data_files <- list.files(outputDir)
@@ -213,7 +231,6 @@ cond_uniq_sites <- cond_uniq_sites[
 ]
 
 tp_sites <- cond_uniq_sites[cond_uniq_sites$timepoint != "d0"]
-
 
 gene_stats <- read.csv(
     file.path(outputDir, "cart19_gene_stats.csv")) %>%
@@ -245,14 +262,15 @@ random_sites <- selectRandomSites(
 
 random_sites <- hiAnnotator::getSitesInFeature(
   random_sites, 
-  refGenes, 
+  ref_genes, 
   colnam = "in_gene", 
   feature.colnam = "name2"
 )
 
 random_sites <- random_sites[random_sites$in_gene != FALSE]
-random_sites$is_onco <- random_sites$in_gene %in% oncoGenes
-random_sites$is_tumSup <- random_sites$in_gene %in% tumSups
+random_sites$is_onco <- random_sites$in_gene %in% onco_genes
+random_sites$is_cosmic <- random_sites$in_gene %in% cosmic_genes
+random_sites$is_tumSup <- random_sites$in_gene %in% tum_sups
 
 # Import KEGG pathways ----
 k_list <- keggList("hsa")
@@ -565,6 +583,105 @@ kegg3.2$grp <- cluster_by_list_similarity(
   cores = numCores
 )
 
+
+## Identify genes within scan stats clusters ----
+clus_df <- as.data.frame(cluster_list$timepoint_clusters, row.names = NULL) %>%
+  dplyr::mutate(id = seq_len(n())) %>%
+  dplyr::group_by(id) %>%
+  dplyr::mutate(
+    num_genes = suppressWarnings(length(unique(ref_genes$name2[
+      S4Vectors::subjectHits(GenomicRanges::findOverlaps(
+        cluster_list$timepoint_clusters[id], ref_genes
+      ))
+    ]))),
+    TP_num_sites = suppressWarnings(length(unique(tp_sites$posid[
+      S4Vectors::subjectHits(GenomicRanges::findOverlaps(
+        cluster_list$timepoint_clusters[id], tp_sites
+      ))
+    ])))
+  ) %>%
+  dplyr::ungroup() %>%
+  dplyr::arrange(target.min) %>%
+  dplyr::mutate(
+    clus.origin = "Timepoint",
+    id = seq_len(n())
+  )
+
+cluster_genes <- suppressWarnings(
+  unique(ref_genes$name2[
+    S4Vectors::subjectHits(GenomicRanges::findOverlaps(
+      cluster_list$timepoint_clusters, ref_genes
+    ))
+  ])
+)
+
+df4 <- dplyr::filter(
+    gene_impact, 
+    gene_name %in% cluster_genes, 
+    Cluster_target.min > 0,
+    TP_num_sites >= 5) %>% 
+  dplyr::arrange(Cluster_target.min, desc(TP_num_sites))
+
+df4.1 <- dplyr::select(
+    df4, gene_name, TP_num_patients, TDN_num_sites, TP_num_sites, 
+    Cluster_target.min, On_Onco_List
+  ) %>%
+  rename(
+    "Gene" = gene_name, "Num. Patients" = TP_num_patients, 
+    "TDN Sites" = TDN_num_sites, "Patient Sites" = TP_num_sites, 
+    "Cluster Min. FDR" = Cluster_target.min, "Onco-Related" = On_Onco_List
+  )
+
+go4.1 <- fisher_hyper_GO_test(
+  df4$gene_name, all_GOBP_list, odds = FALSE, p_adjust = 'BH', 
+  lower_tail = FALSE, cores = numCores
+)
+
+go4.1 <- dplyr::filter(
+  go4.1, overlap_size >= min_GO_ovlp, GO_size <= max_GO_size, !is.na(GO_Term)
+)
+
+if( nrow(go4.1) > 0 ){
+  
+  go4.1$grp <- cluster_by_list_similarity(
+    keys = go4.1$GO_ID, keyList = all_GOBP_list, limitValues = df4$gene_name,
+    cores = numCores
+  )
+  
+  go4.1$grp.go <- membership(cluster_louvain(
+    as.undirected(induced_subgraph(Gobp, go4.1$GO_ID))))[go4.1$GO_ID]
+  
+}else{
+  
+  go4.1$grp <- numeric()
+  go4.1$grp.go <- numeric()
+  
+}
+  
+kegg4.1 <- fisher_hyper_KEGG_test(
+  df4$gene_name, k_pathList, odds = FALSE, p_adjust = 'BH', 
+  lower_tail = FALSE, cores = numCores
+)
+
+kegg4.1 <- dplyr::filter(
+  kegg4.1, overlap_size >= min_KEGG_ovlp, 
+  KEGG_size <= max_KEGG_size, !is.na(KEGG_Term)
+)
+
+if( nrow(kegg4.1) > 0 ){
+  
+  kegg4.1$grp <- cluster_by_list_similarity(
+    keys = kegg3.1$path_id, keyList = k_pathList, limitValues = df3$gene_name, 
+    cores = numCores
+  )
+  
+}else{
+  
+  kegg4.1$grp <- numeric()
+  
+}
+
+
 ## Summarize findings ----
 # List of all genes identified by each criteria
 potential_genes <- list(
@@ -572,82 +689,97 @@ potential_genes <- list(
   "Depletion" = df1.4$Gene,
   "Abundance" = df2.2$Gene, 
   "Longitudinal" = df3.2$Gene,
+  "Clusters" = df4.1$Gene,
   "Composite" = unique(c(
-    df1.2$Gene, df2.2$Gene, df3.2$Gene)))
+    df1.2$Gene, df2.2$Gene, df3.2$Gene, df4.1$Gene
+  ))
+)
 
 # Short summary table
-df4 <- data.frame(
-    criteria = names(potential_genes),
-    gene_count = sapply(potential_genes, length),
-    onco_genes = sapply(potential_genes, function(x){
-      100 * length(which(x %in% oncoGenes)) / length(x)}),
-    tumor_sups = sapply(potential_genes, function(x){
-      100 * length(which(x %in% tumSups)) / length(x)}),
-    go_genes = sapply(potential_genes, function(x){
-      length(which(unique(x) %in% all_GOBP_df$gene_sym))}),
-    kegg_genes = sapply(potential_genes, function(x){
-      length(which(unique(x) %in% k_path_df$gene_sym))}),
-    row.names = NULL) 
+df5 <- data.frame(
+  criteria = names(potential_genes),
+  gene_count = sapply(potential_genes, length),
+  onco_genes = sapply(potential_genes, function(x){
+    100 * length(which(x %in% onco_genes)) / length(x)
+  }),
+  cosmic_genes = sapply(potential_genes, function(x){
+    100 * length(which(x %in% cosmic_genes)) / length(x)
+  }),
+  tumor_sups = sapply(potential_genes, function(x){
+    100 * length(which(x %in% tum_sups)) / length(x)
+  }),
+  go_genes = sapply(potential_genes, function(x){
+    length(which(unique(x) %in% all_GOBP_df$gene_sym))
+  }),
+  kegg_genes = sapply(potential_genes, function(x){
+    length(which(unique(x) %in% k_path_df$gene_sym))
+  }),
+  row.names = NULL
+) 
 
 # Detailed table of all genes
-df5 <- dplyr::filter(
+df6 <- dplyr::filter(
     gene_impact, 
     gene_name %in% potential_genes$Composite | 
       gene_name %in% potential_genes$Depletion, 
-    TP_num_patients > 0) %>%
+    TP_num_patients > 0
+  ) %>%
   dplyr::mutate(
     max_time = round(max_time),
     enr_freq = gene_name %in% potential_genes$Enrichment,
     dep_freq = gene_name %in% potential_genes$Depletion,
     abund = gene_name %in% potential_genes$Abundance,
-    long = gene_name %in% potential_genes$Longitudinal) %>%
+    long = gene_name %in% potential_genes$Longitudinal,
+    clust = gene_name %in% potential_genes$Clusters
+  ) %>%
   dplyr::group_by(loci, gene_name) %>%
   dplyr::mutate(
     crit_id = paste(
-      c("E", "D", "A", "L")[c(enr_freq, dep_freq, abund, long)], 
+      c("E", "D", "A", "L", "C")[c(enr_freq, dep_freq, abund, long, clust)], 
       collapse = ""),
-    count = sum(c(enr_freq, abund, long)),
-    tcount = nchar(crit_id)) %>%
+    count = sum(c(enr_freq, abund, long, clust)),
+    tcount = nchar(crit_id)
+  ) %>%
   dplyr::ungroup() %>%
   dplyr::arrange(
     desc(rowSums(matrix(c(enr_freq, abund, long), ncol = 3))), 
     desc(TP_num_patients))
 
-go5 <- fisher_hyper_GO_test(
+go6 <- fisher_hyper_GO_test(
   potential_genes$Composite, all_GOBP_list, odds = FALSE, p_adjust = 'BH', 
   lower_tail = FALSE, cores = numCores
 )
 
-go5 <- dplyr::filter(
-  go5, overlap_size >= min_GO_ovlp, GO_size <= max_GO_size, !is.na(GO_Term)
+go6 <- dplyr::filter(
+  go6, overlap_size >= min_GO_ovlp, GO_size <= max_GO_size, !is.na(GO_Term)
 )
 
-go5$grp <- cluster_by_list_similarity(
-  keys = go5$GO_ID, keyList = all_GOBP_list, limitValues = df5$gene_name,
+go6$grp <- cluster_by_list_similarity(
+  keys = go6$GO_ID, keyList = all_GOBP_list, limitValues = df6$gene_name,
   cores = numCores
 )
 
-go5$grp.go <- membership(cluster_louvain(
-  as.undirected(induced_subgraph(Gobp, go5$GO_ID))
-))[go5$GO_ID]
+go6$grp.go <- membership(cluster_louvain(
+  as.undirected(induced_subgraph(Gobp, go6$GO_ID))
+))[go6$GO_ID]
 
-kegg5 <- fisher_hyper_KEGG_test(
+kegg6 <- fisher_hyper_KEGG_test(
   potential_genes$Composite, k_pathList, odds = FALSE, p_adjust = 'BH', 
   lower_tail = FALSE, cores = numCores
 )
 
-kegg5 <- dplyr::filter(
-  kegg5, overlap_size >= min_KEGG_ovlp, 
+kegg6 <- dplyr::filter(
+  kegg6, overlap_size >= min_KEGG_ovlp, 
   KEGG_size <= max_KEGG_size, !is.na(KEGG_Term)
 )
 
-kegg5$grp <- cluster_by_list_similarity(
-  keys = kegg5$path_id, keyList = k_pathList, limitValues = df5$gene_name, 
+kegg6$grp <- cluster_by_list_similarity(
+  keys = kegg6$path_id, keyList = k_pathList, limitValues = df6$gene_name, 
   cores = numCores
 )
 
 # Detailed table of genes identified meeting the specified criteria (>= 2)
-df5.1 <- dplyr::filter(df5, count >= 2) %>%
+df6.1 <- dplyr::filter(df6, count >= 2) %>%
   dplyr::mutate(pct_chg = round(pct_chg, digits = 1)) %>%
   dplyr::select(
     gene_name, TP_num_patients, pct_chg, TP_peak_abund, max_time, crit_id
@@ -659,21 +791,24 @@ df5.1 <- dplyr::filter(df5, count >= 2) %>%
   as.data.frame()
 
 ## Data analysis for GO and KEGG based heatmaps ----
-criteria_order <- c("Enrichment", "Depletion", "Abundance", "Longitudinal")
+criteria_order <- c(
+  "Enrichment", "Depletion", "Abundance", "Longitudinal", "Cluster"
+)
 
 ### GO ----
-slice_cnt <- pick_slice_cnt(go5$grp, lines_per_page)
+slice_cnt <- pick_slice_cnt(go6$grp, lines_per_page)
 
 go_criteria_list_df <- bind_rows(list(
     "Enrichment" = dplyr::select(go1.1, GO_ID, adj.p.value),
     "Depletion" = dplyr::select(go1.2, GO_ID, adj.p.value),
     "Abundance" = dplyr::select(go2.1, GO_ID, adj.p.value),
     "Longitudinal" = dplyr::select(go3.2, GO_ID, adj.p.value),
-    "Composite" = dplyr::select(go5, GO_ID, adj.p.value)),
+    "Cluster" = dplyr::select(go4.1, GO_ID, adj.p.value),
+    "Composite" = dplyr::select(go6, GO_ID, adj.p.value)),
   .id = "Criteria"
 )
 
-go_term_data <- go5 %>%
+go_term_data <- go6 %>%
   dplyr::group_by(grp) %>%
   dplyr::arrange(desc(overlap_size), desc(GO_size)) %>%
   dplyr::slice(seq_len(slice_cnt)) %>%  
@@ -704,21 +839,23 @@ go_heatmap_data <- as.data.frame(go_term_matrix) %>%
 
 
 ### KEGG ----
-slice_cnt <- pick_slice_cnt(kegg5$grp, lines_per_page) 
+slice_cnt <- pick_slice_cnt(kegg6$grp, lines_per_page) 
 
 kegg_criteria_list_df <- bind_rows(list(
     "Enrichment" = dplyr::select(kegg1.1, path_id, adj.p.value),
     "Depletion" = dplyr::select(kegg1.2, path_id, adj.p.value),
     "Abundance" = dplyr::select(kegg2.1, path_id, adj.p.value),
     "Longitudinal" = dplyr::select(kegg3.2, path_id, adj.p.value),
-    "Composite" = dplyr::select(kegg5, path_id, adj.p.value)),
+    "Cluster" = dplyr::select(kegg4.1, path_id, adj.p.value),
+    "Composite" = dplyr::select(kegg6, path_id, adj.p.value)),
   .id = "Criteria"
 )
 
-kegg_term_data <- kegg5 %>%
+kegg_term_data <- kegg6 %>%
   dplyr::mutate(
     KEGG_Term = gsub(" - Homo sapiens (human)", "", KEGG_Term, fixed = TRUE),
-    grp = as.integer(grp)) %>%
+    grp = as.integer(grp)
+  ) %>%
   dplyr::group_by(grp) %>%
   dplyr::arrange(desc(overlap_size), desc(KEGG_size)) %>%
   dplyr::slice(seq_len(slice_cnt)) %>%
@@ -741,10 +878,12 @@ kegg_heatmap_data <- as.data.frame(kegg_term_matrix) %>%
     f_kegg_term = stringr::str_extract(KEGG_Term, "[\\w\\s-,]{30}"),
     f_kegg_term = ifelse(
       is.na(f_kegg_term), KEGG_Term, paste0(f_kegg_term, "...")),
-    f_kegg_term = factor(f_kegg_term, levels = f_kegg_term)) %>%
+    f_kegg_term = factor(f_kegg_term, levels = f_kegg_term)
+  ) %>%
   tidyr::gather(
     key = "Criteria", value = "Proportion", 
-    -path_id, -KEGG_Term, -f_kegg_term) %>%
+    -path_id, -KEGG_Term, -f_kegg_term
+  ) %>%
   left_join(kegg_criteria_list_df, by = c("path_id", "Criteria")) %>%
   dplyr::mutate(
     Proportion = ifelse(Proportion == 0, NA, Proportion),
@@ -755,31 +894,31 @@ kegg_heatmap_data <- as.data.frame(kegg_term_matrix) %>%
 
 
 ## Supporting data ----
-df6 <- dplyr::filter(df5, tcount >= 2) %>%
+df7 <- dplyr::filter(df6, tcount >= 2) %>%
   dplyr::arrange(desc(count), desc(pct_chg), desc(abund), desc(long)) %>%
   dplyr::group_by(loci, gene_name) %>%
   dplyr::mutate(method_group = paste(
-    c("Enrichment", "Depletion", "Abundance","Longitudinal")[
-      c(enr_freq, dep_freq, abund, long)], collapse = " - ")) %>%
+    c("Enrichment", "Depletion", "Abundance","Longitudinal", "Cluster")[
+      c(enr_freq, dep_freq, abund, long, clust)], collapse = " - ")) %>%
   dplyr::ungroup() %>% as.data.frame()
 
-sup_table_split <- unlist(sapply(2:4, function(i){
-  combn(1:4, i, simplify = FALSE)}), recursive = FALSE)
+sup_table_split <- unlist(sapply(2:5, function(i){
+  combn(1:5, i, simplify = FALSE)}), recursive = FALSE)
 
-df6_list <- lapply(sup_table_split, function(index){
+df7_list <- lapply(sup_table_split, function(index){
   cols <- 49 + index
-  df6[sapply(seq_len(nrow(df6)), function(i) all(as.logical(df6[i,cols]))),]
+  df7[sapply(seq_len(nrow(df7)), function(i) all(as.logical(df7[i,cols]))),]
 })
 
-names(df6_list) <- sapply(sup_table_split, function(index){
-  paste(c("Enrichment", "Depletion", "Abundance", "Longitudinal")[
+names(df7_list) <- sapply(sup_table_split, function(index){
+  paste(c("Enrichment", "Depletion", "Abundance", "Longitudinal", "Cluster")[
     index], collapse = " - ")
 })
 
-df6_list <- df6_list[sapply(df6_list, nrow) > 0]
+df7_list <- df7_list[sapply(df7_list, nrow) > 0]
 
 output_impact <- dplyr::select(
-    df5, -TDN_sum_abund, -TP_sum_abund, -count, -tcount, -TDN_num_pats_CR,
+    df6, -TDN_sum_abund, -TP_sum_abund, -count, -tcount, -TDN_num_pats_CR,
     -TDN_num_pats_NR, -TP_num_pats_CR, -TP_num_pats_NR, -TDN_num_sites_CR,
     -TDN_num_sites_NR, -TP_num_sites_CR, -TP_num_sites_NR, -TDN_peak_abund_CR,
     -TDN_peak_abund_NR, -TP_peak_abund_CR, -TP_peak_abund_NR, -TDN_sum_abund_CR,
@@ -805,8 +944,9 @@ output_impact <- dplyr::select(
     "Abund_Gini" = abund_gini, "Freq_TDN_Sites" = TDN_freq, 
     "Freq_Patient_Sites" = TP_freq, "Freq_Difference" = freq_diff, 
     "Percent_Freq_Change" = pct_chg, "Enrichment" = enr_freq, 
-    "Depletion" = dep_freq, "Abundance" = abund, "Longitudinal" = long, 
-    "Criteria" = crit_id) %>%
+    "Depletion" = dep_freq, "Abundance" = abund, "Longitudinal" = long,
+    "Cluster" = clust, "Criteria" = crit_id
+  ) %>%
   as.data.frame()
 
 write.csv(
@@ -842,10 +982,10 @@ A point to keep in mind through all this analysis is that integration sites are 
 
 \newpage
 ```{r summary_tbl}
-sig_onco <- p.adjust(sapply(seq_len(nrow(df4)), function(i){
+sig_onco <- p.adjust(sapply(seq_len(nrow(df5)), function(i){
   mat <- matrix(c(
-    df4$gene_count[i] * df4$onco_genes[i] / 100,
-    df4$gene_count[i] * (1 - (df4$onco_genes[i] / 100)),
+    df5$gene_count[i] * df5$onco_genes[i] / 100,
+    df5$gene_count[i] * (1 - (df5$onco_genes[i] / 100)),
     length(random_sites[random_sites$is_onco]),
     length(random_sites[!random_sites$is_onco])),
     ncol = 2)
@@ -854,10 +994,22 @@ sig_onco <- p.adjust(sapply(seq_len(nrow(df4)), function(i){
   method = "BH"
 )
 
-sig_tumSup <- p.adjust(sapply(seq_len(nrow(df4)), function(i){
+sig_cosmic <- p.adjust(sapply(seq_len(nrow(df5)), function(i){
   mat <- matrix(c(
-    df4$gene_count[i] * df4$tumor_sups[i] / 100,
-    df4$gene_count[i] * (1 - (df4$tumor_sups[i] / 100)),
+    df5$gene_count[i] * df5$cosmic_genes[i] / 100,
+    df5$gene_count[i] * (1 - (df5$cosmic_genes[i] / 100)),
+    length(random_sites[random_sites$is_cosmic]),
+    length(random_sites[!random_sites$is_cosmic])),
+    ncol = 2)
+  fisher.test(mat)$p.value
+  }), 
+  method = "BH"
+)
+
+sig_tumSup <- p.adjust(sapply(seq_len(nrow(df5)), function(i){
+  mat <- matrix(c(
+    df5$gene_count[i] * df5$tumor_sups[i] / 100,
+    df5$gene_count[i] * (1 - (df5$tumor_sups[i] / 100)),
     length(random_sites[random_sites$is_tumSup]),
     length(random_sites[!random_sites$is_tumSup])),
     ncol = 2)
@@ -866,11 +1018,15 @@ sig_tumSup <- p.adjust(sapply(seq_len(nrow(df4)), function(i){
   method = "BH"
 )
 
-df4 %>%
+df5 %>%
   dplyr::mutate(
     onco_genes = ifelse(
       sig_onco <= 0.05, 
       paste0("*", format(onco_genes, digits = 3)),
+      format(onco_genes, digits = 3)),
+    cosmic_genes = ifelse(
+      sig_cosmic <= 0.05, 
+      paste0("*", format(cosmic_genes, digits = 3)),
       format(onco_genes, digits = 3)),
     tumor_sups = ifelse(
       sig_tumSup <= 0.05,
@@ -878,7 +1034,8 @@ df4 %>%
       format(tumor_sups, digits = 3))) %>%
   dplyr::rename(
     "Criteria" = criteria, "Count" = gene_count, "Related (%)" = onco_genes, 
-    "Suppressors (%)" = tumor_sups,"Genes" = go_genes, "Genes" = kegg_genes) %>%
+    "Related (%)" = cosmic_genes, "Suppressors (%)" = tumor_sups,
+    "Genes" = go_genes, "Genes" = kegg_genes) %>%
   kable(
     format = "latex", booktabs = TRUE, 
     caption = "Summary of each filtering criteria.", 
@@ -886,14 +1043,14 @@ df4 %>%
   kable_styling(
     latex_options = c("hold_position")) %>%
   add_header_above(
-    c(" ", "Gene", "Onco", "Tumor", "GO-annot.", "KEGG-annot."))
+    c(" ", "Gene", "Onco", "COSMIC", "Tumor", "GO-annot.", "KEGG-annot."))
 ```
 
-**Table 1** summarizes the size and contents of each criteria gene list identified by the various methods. **Figure 1** plots the amount of intersection between the criteria gene lists. A relatively small number of genes (`r length(unique(df5.1$Gene))`)  are in Table 2 that represent genes identified by at least 2 methods. Proportions with asterisk (\*) indicate significant difference from random sites across the genome (Onco Related: `r format(100 * length(random_sites[random_sites$is_onco]) / length(random_sites), digits = 3)`%; Tumor Suppressors: `r format(100 * length(random_sites[random_sites$is_tumSup]) / length(random_sites), digits = 3)`%; Total Sites: `r format(length(random_sites), big.mark = ",")`).
+**Table 1** summarizes the size and contents of each criteria gene list identified by the various methods. **Figure 1** plots the amount of intersection between the criteria gene lists. A relatively small number of genes (`r length(unique(df6.1$Gene))`)  are in Table 2 that represent genes identified by at least 2 methods. Proportions with asterisk (\*) indicate significant difference from random sites across the genome (Onco Related: `r format(100 * length(random_sites[random_sites$is_onco]) / length(random_sites), digits = 3)`%; Tumor Suppressors: `r format(100 * length(random_sites[random_sites$is_tumSup]) / length(random_sites), digits = 3)`%; Total Sites: `r format(length(random_sites), big.mark = ",")`).
 
 ```{r upset_summary_plot, fig.height=5.0, fig.cap=fig1cap}
 inter_df <- dplyr::select(
-    df5, enr_freq, dep_freq, abund, long, tcount) %>%
+    df6, enr_freq, dep_freq, abund, long, tcount) %>%
   dplyr::filter(tcount > 1) %>%
   dplyr::arrange(tcount) %>%
   dplyr::distinct(enr_freq, dep_freq, abund, long) %>%
@@ -919,41 +1076,48 @@ upset(
   intersections = criteria_intersections,
   mainbar.y.label = "Intersecting Gene Count",
   sets.x.label = "Genes in Set",
-  text.scale = 1.25)
+  text.scale = 1.25
+)
 ```
 
 \newpage
 ```{r summary_tbl2}
 kable(
-    df5.1, format = "latex", booktabs = TRUE,
-    caption = tbl2cap, align = "c") %>%
-  kable_styling(
+    df6.1, format = "latex", booktabs = TRUE,
+    caption = tbl2cap, align = "c"
+  ) %>%
+  kableExtra::kable_styling(
     latex_options = c("hold_position"),
-    font_size = 9)
+    font_size = 9
+  )
 ```
 
 \newpage
 ```{r all_GO_tbls}
-slice_cnt <- pick_slice_cnt(go5$grp, lines_per_page)
-go5 %>%
+slice_cnt <- pick_slice_cnt(go6$grp, lines_per_page)
+go6 %>%
   dplyr::group_by(grp) %>%
   dplyr::arrange(desc(overlap_size), desc(GO_size)) %>%
   dplyr::slice(seq_len(slice_cnt)) %>%  
   dplyr::ungroup() %>%
   dplyr::arrange(grp, desc(overlap_size), adj.p.value) %>%
   dplyr::select(grp, GO_ID, GO_Term, GO_size, overlap_size, adj.p.value) %>%
-  dplyr::rename("Group" = grp, "GO ID" = GO_ID, "GO Term" = GO_Term, 
-         "Term Size" = GO_size, "Gene Count" = overlap_size, 
-         "Adjusted P-value" = adj.p.value) %>%
+  dplyr::rename(
+    "Group" = grp, "GO ID" = GO_ID, "GO Term" = GO_Term, 
+    "Term Size" = GO_size, "Gene Count" = overlap_size, 
+    "Adjusted P-value" = adj.p.value
+  ) %>%
   kable(
     ., format = "latex", booktabs = TRUE,
     align = c("c", "c", "l", "c", "c", "c"),
     caption = paste0(
       "GO Biological Process. Top ", slice_cnt, " per group.",
       " Total genes considered: ", 
-      length(which(unique(df5$gene_name) %in% all_GOBP_df$gene_sym)))) %>%
+      length(which(unique(df6$gene_name) %in% all_GOBP_df$gene_sym)))
+  ) %>%
   kableExtra::kable_styling(
-    latex_options = "hold_position", full_width = TRUE, font_size = 10) %>%
+    latex_options = "hold_position", full_width = TRUE, font_size = 10
+  ) %>%
   kableExtra::column_spec(2, width = "6em") %>%
   kableExtra::column_spec(3, width = "24em") %>%
   kableExtra::collapse_rows(1, latex_hline = "major")
@@ -961,36 +1125,42 @@ go5 %>%
 
 \newpage
 ```{r kegg_tbls}
-slice_cnt <- pick_slice_cnt(kegg5$grp, lines_per_page) 
-kegg5 %>%
+slice_cnt <- pick_slice_cnt(kegg6$grp, lines_per_page) 
+kegg6 %>%
   dplyr::mutate(
     KEGG_Term = gsub(" - Homo sapiens (human)", "", KEGG_Term, fixed = TRUE),
-    grp = as.integer(grp)) %>%
+    grp = as.integer(grp)
+  ) %>%
   dplyr::group_by(grp) %>%
   dplyr::arrange(desc(overlap_size), desc(KEGG_size)) %>%
   dplyr::slice(seq_len(slice_cnt)) %>%
   dplyr::ungroup() %>%
   dplyr::arrange(grp, desc(overlap_size), adj.p.value) %>%
   dplyr::select(
-    grp, path_id, KEGG_Term, KEGG_size, overlap_size, adj.p.value) %>%
-  dplyr::rename("Group" = grp, "KEGG ID" = path_id, "Description" = KEGG_Term, 
-         "Term Size" = KEGG_size, "Gene Count" = overlap_size, 
-         "Adjusted P-value" = adj.p.value) %>%
+    grp, path_id, KEGG_Term, KEGG_size, overlap_size, adj.p.value
+  ) %>%
+  dplyr::rename(
+    "Group" = grp, "KEGG ID" = path_id, "Description" = KEGG_Term, 
+    "Term Size" = KEGG_size, "Gene Count" = overlap_size, 
+    "Adjusted P-value" = adj.p.value
+  ) %>%
   kable(
     ., format = "latex", booktabs = TRUE, 
     align = c("c", "c", "l", "c", "c", "c"),
     caption = paste0("KEGG Pathway analysis. Top ", slice_cnt, " per group.",
         " Total genes considered: ", 
-        length(which(unique(df5$gene_name) %in% k_path_df$gene_sym)))) %>%
+        length(which(unique(df6$gene_name) %in% k_path_df$gene_sym)))
+  ) %>%
   kableExtra::kable_styling(
-    latex_options = "hold_position", full_width = TRUE, font_size = 10) %>%
+    latex_options = "hold_position", full_width = TRUE, font_size = 10
+  ) %>%
   kableExtra::column_spec(2, width = "7em") %>%
   kableExtra::column_spec(3, width = "21em") %>%
   kableExtra::collapse_rows(1, latex_hline = "major")
 ```
 
 \newpage
-## Integration Frequency
+## Integration Frequency (Enrichment)
 
 ```{r enrichment_tbl}
 kable(
@@ -998,23 +1168,28 @@ kable(
     caption = paste(
       "Table of top", nrow(head(df1.2, n = 50)), 
       "genes with the most frequent clonal enrichment."), 
-    align = "c", digits = 1) %>%
-  kable_styling(
+    align = "c", digits = 1
+  ) %>%
+  kableExtra::kable_styling(
     latex_options = c("hold_position"),
-    font_size = 9)
+    font_size = 9
+  )
 ```
 
 \newpage
+## Integration Frequency (Depletion)
 ```{r depletion_tbl}
 kable(
     head(df1.4, n = 50), format = "latex", booktabs = TRUE, 
     caption = paste(
       "Table of top", nrow(head(df1.4, n = 50)), 
       "genes with the most frequent clonal depletion."), 
-    align = "c", digits = 1) %>%
-  kable_styling(
+    align = "c", digits = 1
+  ) %>%
+  kableExtra::kable_styling(
     latex_options = c("hold_position"),
-    font_size = 9)
+    font_size = 9
+  )
 ```
 
 \newpage
@@ -1026,10 +1201,12 @@ kable(
     caption = paste(
       "Table of top", nrow(head(df2.2, n = 50)), 
       "Genes containing the highest abundant clones."), 
-    align = "c", digits = 3) %>%
-  kable_styling(
+    align = "c", digits = 3
+  ) %>%
+  kableExtra::kable_styling(
     latex_options = c("hold_position"),
-    font_size = 9)
+    font_size = 9
+  )
 ```
 
 \newpage
@@ -1041,11 +1218,31 @@ kable(
     caption = paste(
       "Table of top", nrow(head(df3.2, n = 50)), 
       "genes identified by longitudinal observations."), 
-    align = "c") %>%
-  kable_styling(
+    align = "c"
+  ) %>%
+  kableExtra::kable_styling(
     latex_options = c("hold_position"),
-    font_size = 9)
+    font_size = 9
+  )
 ```
+
+\newpage
+## Genes within Clusters
+
+```{r cluster_tbl}
+kable(
+    head(df4.1, n = 50), format = "latex", booktabs = TRUE, 
+    caption = paste(
+      "Table of top", nrow(head(df4.1, n = 50)), 
+      "genes from clusters identified by minimum FDR."), 
+    align = "c", digits = 4
+  ) %>%
+  kableExtra::kable_styling(
+    latex_options = c("hold_position"),
+    font_size = 9
+  )
+```
+
 
 \newpage
 # Reference Data
@@ -1058,7 +1255,7 @@ Gene Ontologies were extracted from the `GO.db` R-package (v3.4.1). KEGG pathway
 # Comprehensive Genes of Interest Table
 
 ```{r sup_table}
-df5 %>%
+df6 %>%
   dplyr::mutate(
     seqnames = stringr::str_extract(loci, "[\\w]+"),
     range = stringr::str_extract(loci, "[0-9:]+$"),

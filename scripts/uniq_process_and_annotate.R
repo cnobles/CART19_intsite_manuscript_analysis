@@ -14,8 +14,10 @@ if(
   file_uniq_sites <- grep("filtered_unique_intsites", data_files, value = TRUE)
   
   uniq_sites <- readRDS(file.path(outputDir, file_uniq_sites))
+
   uniq_sites$celltype <- specimen_data$celltype[
-    match(uniq_sites$specimen, specimen_data$specimenaccnum)]
+    match(uniq_sites$specimen, specimen_data$specimenaccnum)
+  ]
   
   # Condense the integration site ranges to unique locations and abundances ----
   uniq_list <- split(uniq_sites, uniq_sites$gtsp)
@@ -109,6 +111,19 @@ if(
   
   cond_uniq_sites <- cond_uniq_sites[
     !cond_uniq_sites$specimen %in% excluded_specimens]
+  
+  ## Remove potential mispriming sites =========================================
+  ## Occationally, amplification primers can anneal to human genomic sequences
+  ## in regions with perfect matches to the LTRbit sequence used to filter for 
+  ## Lentiviral-vector integration. In these cases, we cannot be certain if the
+  ## identified integration sites are true integration sites or mispriming. Due
+  ## to this confusion, we've decided to remove these specific sites from our
+  ## subsequent analysis. They are still present in the initially processed data
+  ## and a list is present in the 'initiate_analysis.R' script.
+  cond_uniq_sites <- cond_uniq_sites[
+    !generate_posid(cond_uniq_sites) %in% potential_mispriming
+  ]
+  
   
   # Write condensed sites to file ----------------------------------------------
   saveRDS(

@@ -438,7 +438,7 @@ if( all(c(
                   message(unique(x$samplename))
                   refine_breakpoints(x, counts = "count")})))
                 gr$siteid <- NULL
-                unique_granges(gr, sum.counts = TRUE, counts.col = "count")
+                unique_granges(gr, sum.cols = "count")
               })))
         
         sites <- split(sites, sites$patient)
@@ -454,7 +454,7 @@ if( all(c(
               function(x){
                 library(gintools)
                 gr <- standardize_sites(x)
-                unique_granges(gr, sum.counts = TRUE, counts.col = "count")
+                unique_granges(gr, sum.cols = "count")
               })))
         
         names(sites) <- NULL
