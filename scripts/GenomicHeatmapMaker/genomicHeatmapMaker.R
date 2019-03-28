@@ -40,8 +40,41 @@ sites_to_heatmap <- function(sites_mrcs, referenceGenome,
                              sampleName_GTSP, output_dir) {
     reference_genome_sequence <- get_reference_genome(referenceGenome)
     # TODO: populate from local database, at present pulled from UCSC web-site
-    refSeq_genes <- getRefSeq_genes(referenceGenome)
-    CpG_islands <- getCpG_islands(referenceGenome)
+    
+    if( is.null(args$utils) ){
+      refSeq_genes <- getRefSeq_genes(referenceGenome)
+    }else{
+      refSeq_genes <- readRDS(file.path(args$utils, "hg38.refSeq.rds"))
+    }
+    
+    if( is.null(args$utils) ){
+      
+      #CpG_islands <- getCpG_islands(referenceGenome)
+      CpG_data <- cpg <- getUCSCtable(
+        "cpgIslandExt", "CpG Islands", freeze = referenceGenome
+      )
+
+      CpG_data <- CpG_data[
+        CpG_data$chrom %in% 
+          seqnames(GenomeInfoDb::seqinfo(reference_genome_sequence)),
+        ]
+      
+      CpG_islands <- GenomicRanges::GRanges(
+        seqnames = CpG_data$chrom,
+        ranges = IRanges::IRanges(
+          start = CpG_data$chromStart, end = CpG_data$chromEnd
+        ),
+        strand = "*",
+        seqinfo = GenomeInfoDb::seqinfo(reference_genome_sequence)
+      )
+      
+      mcols(CpG_islands) <- CpG_data
+
+    }else{
+      
+      CpG_islands <- readRDS(file.path(args$utils, "hg38.CpGislands.rds"))
+      
+    }
 
     ### oncogene_file <- "allonco_no_pipes.csv"
     oncogene_file <- file.path(codeDir, "allonco_no_pipes.csv")
@@ -121,7 +154,35 @@ sites_to_heatmap <- function(sites_mrcs, referenceGenome,
                                          "CpG_density", window_size_CpG_density)
 
     if( ! grepl("^mm", referenceGenome)) { # mouse does not have DNaseI track
-        DNaseI <- getDNaseI(referenceGenome)
+      
+      if( is.null(args$utils) ){
+      
+        #DNaseI <- getDNaseI(referenceGenome)
+        DNaseI_data <- getUCSCtable(
+            "wgEncodeRegDnaseClustered", "DNase Clusters", freeze = referenceGenome
+          )
+        
+        DNaseI_data <- DNaseI_data[
+          DNaseI_data$chrom %in% 
+            seqnames(GenomeInfoDb::seqinfo(reference_genome_sequence)),
+          ]
+        
+        DNaseI <- GenomicRanges::GRanges(
+          seqnames = DNaseI_data$chrom,
+          ranges = IRanges::IRanges(
+            start = DNaseI_data$chromStart, end = DNaseI_data$chromEnd
+          ),
+          strand = "*",
+          seqinfo = GenomeInfoDb::seqinfo(reference_genome_sequence)
+        )
+  
+        mcols(DNaseI) <- DNaseI_data
+      
+      }else{
+      
+        DNaseI <- readRDS(file.path(args$utils, "hg38.DNaseI.rds"))
+          
+      }
         window_size_DNaseI <- c("1k"=1e3, "10k"=1e4, "100k"=1e5, "1M"=1e6)
         sites_mrcs <- getFeatureCounts(sites_mrcs, DNaseI, "DNaseI_count", 
                                        width=window_size_DNaseI)

@@ -27,7 +27,7 @@ if( all(c(
   cat("[", paste(Sys.time()), "] All initial processing files identified, ending initial processing.\n")
   
 }else{
-
+  
   cat("[", paste(Sys.time()), "]\n",
       "Initial Processing for CART19 Specimens\n",
       "Author: Christopher Nobles, Ph.D.\n",
@@ -174,34 +174,81 @@ if( all(c(
     ))
     
   }else{
+    
+    if( exists("intsiteSpecimenMetadata") ){
+      
+      cat("[", paste(Sys.time()), "] Specimen data found, formatting...\n")
+      
+      specimenData <- dplyr::select(
+          intsiteSpecimenMetadata, 
+          Trial, Patient_ID, Abv_Cell_Type, 
+          Sorting_Parameters, Timepoint, GTSP
+        ) %>%
+        dplyr::rename(
+          "trial" = Trial, "patient" = Patient_ID, 
+          "timepoint" = Timepoint, "specimenaccnum" = GTSP
+        ) %>%       
+        mutate(
+          celltype = ifelse(
+            grepl("^s", Abv_Cell_Type),
+            paste0(gsub("^s", "", Abv_Cell_Type), ":", Sorting_Parameters),
+            Abv_Cell_Type),
+          celltype = ifelse(
+            as.character(celltype) == "PBMC", "PBL", as.character(celltype)),
+          celltype = ifelse(
+            as.character(celltype) == "Whole Blood", 
+            "PBL", as.character(celltype)),
+          celltype = factor(celltype, levels = celltypeLevels),
+          timepoint = factor(timepoint, levels = timepointLevels)
+        ) %>%
+        dplyr::select(trial, patient, celltype, timepoint, specimenaccnum) %>% 
+        arrange(specimenaccnum)
+      
+    }else{
+      
+      cat("[", paste(Sys.time()), "] Connecting to Specimen Database...\n")
+      junk <- sapply(dbListConnections(MySQL()), dbDisconnect)
+      dbConn <- dbConnect(MySQL(), group = connections$specimen_db_group)
+      stopifnot(dbGetQuery(dbConn, "SELECT 1") == 1)
+      
+      metaCols <- c(
+        "Trial", "Patient", "CellType", "Timepoint", "VCN", "SpecimenAccNum"
+      )
+      
+      querySelection <- paste(
+        "SELECT", 
+        paste(metaCols, collapse = ", "),
+        "FROM specimen_management.gtsp",
+        sep = " "
+      )
+      
+      queryCondition <- paste0("WHERE Trial = '", trial, "'")
+      query <- paste(querySelection, queryCondition, sep = " ")
+      specimenData <- dbGetQuery(dbConn, query)
+      names(specimenData) <- tolower(names(specimenData))
+      
+      cat(
+        "[", paste(Sys.time()), "] Specimen information includes data for ", 
+        nrow(specimenData), 
+        " samples.\n"
+      )
+      
+      null <- dbDisconnect(dbConn)
+      rm(query, queryCondition, querySelection, metaCols, dbConn, junk)
+        
+      if( nrow(specimenData) > 0 ){
+        stop("Specimen data not acquired from Specimen Database.")
+      }
+      
+    }
+    
+    if( all(intsiteSpecimenMetadata$GTSP %in% specimenData$specimenaccnum) ){
+      cat("[", paste(Sys.time()), "] Specimen data acquired.\n")
+    }else{
+      warning("[ Warning ] Missing specimens in the database, using input annotations.")
+    }
+    
   
-    cat("[", paste(Sys.time()), "] Connecting to Specimen Database...\n")
-    junk <- sapply(dbListConnections(MySQL()), dbDisconnect)
-    dbConn <- dbConnect(MySQL(), group = connections$specimen_db_group)
-    stopifnot(dbGetQuery(dbConn, "SELECT 1") == 1)
-    
-    metaCols <- c(
-      "Trial", "Patient", "CellType", "Timepoint", "VCN", "SpecimenAccNum"
-    )
-    
-    querySelection <- paste(
-      "SELECT", 
-      paste(metaCols, collapse = ", "),
-      "FROM specimen_management.gtsp",
-      sep = " "
-    )
-    
-    queryCondition <- paste0("WHERE Trial = '", trial, "'")
-    query <- paste(querySelection, queryCondition, sep = " ")
-    specimenData <- dbGetQuery(dbConn, query)
-    names(specimenData) <- tolower(names(specimenData))
-    
-    cat(
-      "[", paste(Sys.time()), "] Specimen information includes data for ", 
-      nrow(specimenData), 
-      " samples.\n"
-    )
-    
     # Special condition, same patient with two identifiers.
     specimenData$patient <- gsub(
       "p36908-115", "p04409-10", specimenData$patient
@@ -214,48 +261,6 @@ if( all(c(
     specimenData$celltype <- factor(
       specimenData$celltype, levels = celltypeLevels
     )
-    
-    null <- dbDisconnect(dbConn)
-    rm(query, queryCondition, querySelection, metaCols, dbConn, junk)
-    
-    if( exists("specimenData") ){
-      
-      if( all(intsiteSpecimenMetadata$GTSP %in% specimenData$specimenaccnum) ){
-        cat("[", paste(Sys.time()), "] Specimen data acquired from database.\n")
-        
-      }else{
-        
-        warning("Missing specimens in the database, using input annotations.")
-        
-        specimenData <- dplyr::select(
-            intsiteSpecimenMetadata, 
-            Trial, Patient_ID, Abv_Cell_Type, 
-            Sorting_Parameters, Timepoint, GTSP) %>%
-          dplyr::rename(
-            "trial" = Trial, "patient" = Patient_ID, 
-            "timepoint" = Timepoint, "specimenaccnum" = GTSP) %>%       
-          mutate(
-            celltype = ifelse(
-              grepl("^s", Abv_Cell_Type),
-              paste0(gsub("^s", "", Abv_Cell_Type), ":", Sorting_Parameters),
-              Abv_Cell_Type),
-            celltype = ifelse(
-              as.character(celltype) == "PBMC", "PBL", as.character(celltype)),
-            celltype = ifelse(
-              as.character(celltype) == "Whole Blood", 
-              "PBL", as.character(celltype)),
-            celltype = factor(celltype, levels = celltypeLevels),
-            timepoint = factor(timepoint, levels = timepointLevels)) %>%
-          dplyr::select(trial, patient, celltype, timepoint, specimenaccnum) %>% 
-          arrange(specimenaccnum)
-        
-      }
-      
-    }else{
-      
-      stop("Specimen data not acquired from Specimen Database.")
-      
-    }
     
     # Save specimen data.
     saveRDS(
@@ -286,10 +291,10 @@ if( all(c(
     
     queryUniq <- sprintf(
       "SELECT * FROM %1$s.samples
-       JOIN %1$s.sites ON %1$s.samples.sampleID = %1$s.sites.sampleID
-       JOIN %1$s.pcrbreakpoints ON %1$s.pcrbreakpoints.siteID = %1$s.sites.siteID",
-       connections$intsites_db_name, 
-       trial)
+      JOIN %1$s.sites ON %1$s.samples.sampleID = %1$s.sites.sampleID
+      JOIN %1$s.pcrbreakpoints ON %1$s.pcrbreakpoints.siteID = %1$s.sites.siteID",
+      connections$intsites_db_name, 
+      trial)
     
     uniqSitesData <- dbGetQuery(dbConn, queryUniq)
     uniqSitesData <- uniqSitesData[, !duplicated(colnames(uniqSitesData))]
@@ -303,10 +308,10 @@ if( all(c(
     
     queryMulti <- sprintf(
       "SELECT * FROM %1$s.samples 
-       JOIN %1$s.multihitpositions 
-       ON %1$s.samples.sampleID = %1$s.multihitpositions.sampleID 
-       JOIN %1$s.multihitlengths 
-       ON %1$s.multihitpositions.multihitID = %1$s.multihitlengths.multihitID",
+      JOIN %1$s.multihitpositions 
+      ON %1$s.samples.sampleID = %1$s.multihitpositions.sampleID 
+      JOIN %1$s.multihitlengths 
+      ON %1$s.multihitpositions.multihitID = %1$s.multihitlengths.multihitID",
       connections$intsites_db_name, 
       trial)
     
@@ -332,7 +337,7 @@ if( all(c(
     if( exists("dbIntsitesData") ){
       if( nrow(dbIntsitesData$uniqSites) > 0 & 
           nrow(dbIntsitesData$multihits) > 0 
-        ){
+      ){
         
         cat("[", paste(Sys.time()), "] Integration site data acquired from database.\n")
         
@@ -343,7 +348,7 @@ if( all(c(
         cat(
           "[", paste(Sys.time()), "] Integrations sites acquired for ", 
           sum(acq_specimens %in% specimenData$specimenaccnum), 
-          " out of ", nrow(specimenData), "."
+          " out of ", nrow(specimenData), ".\n"
         )
         
       }else{
@@ -357,7 +362,7 @@ if( all(c(
       stop("IntSite data not acquired from IntSite Database.")
       
     }
-  
+    
     ## Save unprocessed data
     saveRDS(
       dbIntsitesData, 
@@ -368,7 +373,7 @@ if( all(c(
     )
     
   }
-    
+  
   
   ## Join GTSP, Patient, CellType, and Timepoint info with sites ----
   if( any(grepl("[0-9]_unique_intsites", list.files(outputDir), perl = TRUE)) &
@@ -428,19 +433,19 @@ if( all(c(
           i, " of ", length(dbIntsitesData), ").\n")
         
         sites <- unlist(GenomicRanges::GRangesList(
-            parLapply(
-              cluster,
-              sites,
-              function(x){
-                library(gintools)
-                message(unique(x$patient))
-                grl <- split(x, x$samplename)
-                gr <- unlist(GenomicRanges::GRangesList(lapply(grl, function(x){
-                  message(unique(x$samplename))
-                  refine_breakpoints(x, counts = "count")})))
-                gr$siteid <- NULL
-                unique_granges(gr, sum.cols = "count")
-              })))
+          parLapply(
+            cluster,
+            sites,
+            function(x){
+              library(gintools)
+              message(unique(x$patient))
+              grl <- split(x, x$samplename)
+              gr <- unlist(GenomicRanges::GRangesList(lapply(grl, function(x){
+                message(unique(x$samplename))
+                refine_breakpoints(x, counts = "count")})))
+              gr$siteid <- NULL
+              unique_granges(gr, sum.cols = "count")
+            })))
         
         sites <- split(sites, sites$patient)
         
@@ -449,14 +454,14 @@ if( all(c(
           i, " of ", length(dbIntsitesData), ").\n")
         
         sites <- unlist(GenomicRanges::GRangesList(
-            parLapply(
-              cluster, 
-              sites,
-              function(x){
-                library(gintools)
-                gr <- standardize_sites(x)
-                unique_granges(gr, sum.cols = "count")
-              })))
+          parLapply(
+            cluster, 
+            sites,
+            function(x){
+              library(gintools)
+              gr <- standardize_sites(x)
+              unique_granges(gr, sum.cols = "count")
+            })))
         
         names(sites) <- NULL
         stopCluster(cl = cluster)
@@ -464,7 +469,7 @@ if( all(c(
         
       }
     )
-  
+    
     cat("[", paste(Sys.time()), "] Breakpoint refinement and positional standardizing completed.\n")
     
     names(intsitesData) <- c("uniqSites", "multihits")
@@ -480,7 +485,7 @@ if( all(c(
         paste0(analysisDate, "_unique_intsites.rds")
       )
     )
-  
+    
     save.image(file.path(outputDir, "temp.image.RData"))
     
     cat("[", paste(Sys.time()), "] Normalizing multihit clusters...\n")
@@ -508,7 +513,7 @@ if( all(c(
         paste0(analysisDate, "_multihits.rds")
       )
     )
-  
+    
   }
   
   ## Load and format VCN data ----
@@ -567,7 +572,7 @@ if( all(c(
     ))
     
   }else{
-  
+    
     cat("[", paste(Sys.time()), "] Conducting contamination filtering of unique integration sites...\n")
     
     uniqSites <- intsitesData$uniqSites
@@ -612,19 +617,19 @@ if( all(c(
     
     contamSites <- contamSites[
       sapply(contamSites, function(x) any(duplicated(x)))
-    ]
+      ]
     
     contamSites <- contamSites[
       sapply(contamSites, function(x) length(unique(x$patient)) > 1)
-    ]
+      ]
     
     contamSites <- contamSites[
       sapply(contamSites, function(x) length(unique(x$miseqid)) == 1)
-    ]
+      ]
     
     contamSites <- contamSites[
       sapply(contamSites, function(x) length(unique(x$count)) > 1)
-    ]
+      ]
     
     cat("[", paste(Sys.time()), "] Final count of sites needing correction: ", length(contamSites), "\n")
     cat("[", paste(Sys.time()), "] Reassigning reads to correct patient...\n")
@@ -636,10 +641,10 @@ if( all(c(
         modifiedUsids <- siteGrp$usid
         
         df <- data.frame(
-            'patient' = siteGrp$patient,
-            'readCounts' = siteGrp$count,
-            stringsAsFactors = FALSE
-          ) %>%
+          'patient' = siteGrp$patient,
+          'readCounts' = siteGrp$count,
+          stringsAsFactors = FALSE
+        ) %>%
           dplyr::group_by(patient) %>%
           dplyr::summarise(readCounts = sum(readCounts))
         
@@ -649,7 +654,7 @@ if( all(c(
         
         otherOriReads <- oriPatReads[
           oriPatReads$count != max(oriPatReads$count)
-        ]
+          ]
         
         false_reads <- siteGrp[siteGrp$patient != oriPat]
         topOriRead$count <- topOriRead$count + sum(false_reads$count)
@@ -659,7 +664,7 @@ if( all(c(
           list("modifiedReads" = modifiedReads, "modifiedUsids" = modifiedUsids)
         )
         
-    })
+      })
     
     modifiedReads <- unlist(GRangesList(
       lapply(modifiedSites, "[[", 1)), use.names = FALSE)
@@ -684,7 +689,7 @@ if( all(c(
         paste0(analysisDate, "_filtered_unique_intsites.rds")
       )
     )
-  
+    
   }
   
   # Completed ----
@@ -694,7 +699,7 @@ if( all(c(
     sep = ""
   )
   
-  if(all(c(
+  if( all(c(
     any(grepl("specimen_data.rds", list.files(outputDir))),
     any(grepl("unprocessed_intsites.rds", list.files(outputDir))),
     file.exists(file.path(
@@ -705,10 +710,10 @@ if( all(c(
       outputDir, paste0(analysisDate, "_vcn_data.rds"))),
     file.exists(file.path(
       outputDir, paste0(analysisDate, "_filtered_unique_intsites.rds")))
-    ))){
+  )) ){
     
     system(paste0("rm ", file.path(outputDir, "temp.image.RData"))) 
     
   }
-
+  
 }

@@ -447,6 +447,8 @@ go_genes <- unique(unlist(all_GOBP_list))
 ```
 
 ---
+
+\newpage
 ## Figure 1. Experimental strategy and examples of results.
 ```{r fig1B, fig.width=7.5, fig.height=3.5}
 vcn_summary <- within(
@@ -948,7 +950,7 @@ response_barplot$barplot
 ```
 Figure 1C. C) Representative barplots from different clinical response groups showing the proportion of the most abundant 100 clones from each patient measured by SonicAbundance. T cells at day 0 indicate the analysis of the pre-infusion product, while other samples were collected post-infusion from peripherial blood (PBL). Each color indicates a different clone within a single patient while the height of the color indicating the relative abundance of the clone within that sample. No clones were shared across patients. Light grey indicates the remaining clones binned as low abundance and their proportion of the population. 
 
-
+\newpage
 ## Figure 2. Clonal expansionin CART19-modified cells assessed by tracking sites of integrated vectors.
 ```{r clonal_skewing_across_patients}
 intsite_clone_skew_plots <- within(
@@ -1400,7 +1402,7 @@ tet2_resp$tet2_resp_plot
 ```
 Figure 2E. TET2 frequency differential
 
-
+\newpage
 ## Figure 3. Pathways marked by vector integration.
 ```{r fig3AB, fig.width=9, fig.height=6, eval=TRUE}
 go_kegg_heatmaps <- within(
@@ -1467,19 +1469,19 @@ go_kegg_heatmaps <- within(
     # GOI potential genes and analysis ----   
     potential_genes <- apply(
       as.matrix(goi_analysis[
-        ,c("Depletion", "Enrichment", "Abundance", "Longitudinal")]), 
+        ,c("Depletion", "Enrichment", "Abundance", "Longitudinal", "Cluster")]), 
       2, function(x){
              goi_analysis$Gene_Name[x]
            })
     
     composite_genes <- unique(unlist(
-      potential_genes[c("Enrichment", "Abundance", "Longitudinal")]))
+      potential_genes[c("Enrichment", "Abundance", "Longitudinal", "Cluster")]
+    ))
 
-    criteria_order <- c("Depletion", "Enrichment", "Abundance", "Longitudinal")
+    criteria_order <- c(
+      "Depletion", "Enrichment", "Abundance", "Longitudinal", "Cluster"
+    )
     
-    source(file.path(scriptDir, "supporting_functions.R"))
-    source(file.path(scriptDir, "supporting_goa_functions.R"))
-
     composite_go <- fisher_hyper_GO_test(
       gene_list = composite_genes, GO_list = select_GOBP_list, odds = FALSE, 
       p_adjust = "BH", lower_tail = FALSE, filter = TRUE, cores = numCores)
@@ -1653,7 +1655,7 @@ grid.arrange(
 ```
 Figure 3AB. A and B) Heatmaps indicating the proportion of each gene ontology (GO, blue) term or KEGG pathway (green) term are represented by the darker shades. Astericks indicate significant enrichment for the term over random.
 
-
+\newpage
 ## Figure 4. Genomic and Epigenetic features associated with vector integration. 
 ```{r generate_heatmap_data, eval=FALSE}
 heatmap_data <- within(
@@ -2751,7 +2753,7 @@ model_analysis <- within(
 )
 ```
 
-```{r fig5A, fig.height=3.5, fig.width=7}
+```{r fig5AB, fig.height=3.5, fig.width=7}
 model_analysis <- within(
   model_analysis, {
     # TDN Model cross-validation
@@ -2780,7 +2782,7 @@ grid.arrange(
 ```
 Figure 5AB. A total of 91 features spanning population metrics, genomic, and epigenetic features from 29 patients were used in a least absolute shrinkage and selection operator (LASSO) logistic regression to build a classification model.  Results from leave-one-out cross-validation of models based on A) transduction products and B) day 28 peripherial blood samples. Misclassification error is reduced as models get more accurate, and often more complex (number of variables presented on the x-axis). Error bars indicated standard error and the minimum value of misclassification is indicate on the right of the plots. 
 
-```{r fig5CD, fig.height=6, fig.width=7.5}
+```{r fig5CD, fig.height=6, fig.width=10.25, out.width="66%"}
 # Model contributions
 model_analysis <- within(
   model_analysis, {
@@ -2922,9 +2924,7 @@ grid.arrange(
 Figure 5CD. Bar plots indicate the contribution of different features or metrics to classification within each model. Positive contribution indicates direct correlation towards positive clinical outcome while negative contributions indicate a direct correlation to negative clinical outcomes. C) Transduction product model and D) day 28 periferial blood model.
 
 \newpage
-## Figure 6. 
-
-```{r gene_expression_comparision, fig.height=6, fig.width=4}
+```{r fig5EFG, fig.height=6, fig.width=4}
 gen_express <- within(
   list(), {
     
@@ -2937,8 +2937,8 @@ gen_express <- within(
           "cart19_transcript_assay_mockstim.csv"
         ), 
         sep = ",", header = TRUE, data.table = FALSE
-      ) %>%
-      rename("symbol" = Patient_ID)
+      ) %>% 
+      dplyr::rename("symbol" = Patient_ID)
     
     txn_mock_stim_mat <- as.matrix(txn_mock_stim[,2:ncol(txn_mock_stim)])
     
@@ -2961,7 +2961,7 @@ gen_express <- within(
         ), 
         sep = ",", header = TRUE, data.table = FALSE
       ) %>%
-      rename("symbol" = Patient_ID)
+      dplyr::rename("symbol" = Patient_ID)
     
     txn_exp_stim_mat <- as.matrix(txn_exp_stim[,2:ncol(txn_exp_stim)])
     
@@ -3211,7 +3211,7 @@ gen_express <- within(
         data = pat_spec_sig_test, 
         aes(
           x = rep(1.5, nrow(pat_spec_sig_test)),
-          y = rep(12.5, nrow(pat_spec_sig_test)),
+          y = rep(10, nrow(pat_spec_sig_test)),
           label = sprintf("p-value = %.3f", round(sig, digits = 3))
         )
       ) +
@@ -3243,7 +3243,7 @@ gen_express <- within(
       ggplot(aes(x = rank_grp, y = pct * 100, color = type)) +
       geom_point() + 
       geom_line(alpha = 0.25) +
-      facet_grid(type ~ .) +
+      facet_wrap(type ~ ., ncol = 1, scales = "free") +
       scale_x_continuous(breaks = 1:10, labels = 1:10) +
       scale_color_brewer(type = "qual", palette = "Set1") +
       labs(
@@ -3282,21 +3282,19 @@ gen_express <- within(
         fill = "Criteria"
       ) +
       custom_theme
-    
-    out_plot <- grid.arrange(
-      grobs = list(
-        total_gene_exp_plot, pct_intsites_by_grp_plot
-      ),
-      layout_matrix = matrix(c(1,1,1,2,2), ncol = 1)
-    )
-
+  
   }
 )
 
-gene_express$out_plot
+grid.arrange(
+  grobs = list(
+    gen_express$total_gene_exp_plot, gen_express$pct_intsites_by_grp_plot
+  ),
+  layout_matrix = matrix(c(1,1,1,2,2), ncol = 1)
+)
 
 ```
-Figure 6AB. ...
+Figure 5EGF. ...
 
 \newpage
 # Supplemental figures and tables
@@ -3557,14 +3555,14 @@ long_clone_plots <- within(
   list(), {
     # Summarise each clones behavior
     clone_data <- as.data.frame(cond_uniq_sites, row.names = NULL) %>%
-      filter(patient %in% std_clin_patients) %>%
-      select(
+      dplyr::filter(patient %in% std_clin_patients) %>%
+      dplyr::select(
         patient, timepoint, celltype, specimen, 
         estAbund, relAbund, posid, gene_id
       ) %>%
-      mutate(dtime = convert_time(as.character(timepoint))) %>%
-      group_by(patient, posid, gene_id) %>%
-      summarise(
+      dplyr::mutate(dtime = convert_time(as.character(timepoint))) %>%
+      dplyr::group_by(patient, posid, gene_id) %>%
+      dplyr::summarise(
         tfs = paste(sort(unique(as.integer(timepoint))), collapse = ","),
         min_tf = min(as.integer(timepoint)), 
         max_tf = max(as.integer(timepoint)),
@@ -3575,38 +3573,38 @@ long_clone_plots <- within(
         min_ab = min(estAbund), max_ab = max(estAbund),
         min_rb = min(relAbund), max_rb = max(relAbund)
       ) %>%
-      arrange(desc(num_tp), desc(max_ab), desc(min_ab)) %>%
-      ungroup()
+      dplyr::arrange(desc(num_tp), desc(max_ab), desc(min_ab)) %>%
+      dplyr::ungroup()
     
     # Isolate data for plot
     plot_clones <- clone_data %>%
-      group_by(patient) %>%
-      arrange(desc(max_tp - min_tp), desc(max_rb)) %>%
-      slice(1:10) %$%
+      dplyr::group_by(patient) %>%
+      dplyr::arrange(desc(max_tp - min_tp), desc(max_rb)) %>%
+      dplyr::slice(1:10) %$%
       unique(paste0(patient, ":", posid))
 
     plot_data <- as.data.frame(cond_uniq_sites, row.names = NULL) %>%
-      select(patient, timepoint, posid, gene_id, estAbund, relAbund) %>%
-      filter(paste0(patient, ":", posid) %in% plot_clones) %>%
-      mutate(
+      dplyr::select(patient, timepoint, posid, gene_id, estAbund, relAbund) %>%
+      dplyr::filter(paste0(patient, ":", posid) %in% plot_clones) %>%
+      dplyr::mutate(
         tp = convert_time(as.character(timepoint)),
         tp = ifelse(tp == 0, 7.5, tp),
         tp = ifelse(tp == 1, 8.5, tp),
         pf = as.integer(
           factor(paste0(patient, ":", posid), levels = rev(plot_clones)))
       ) %>%
-      group_by(patient, timepoint, tp, pf, posid, gene_id) %>%
-      summarise(
+      dplyr::group_by(patient, timepoint, tp, pf, posid, gene_id) %>%
+      dplyr::summarise(
         logAbund = log(mean(estAbund), base = 10),
         estAbund = mean(estAbund),
         relAbund = mean(relAbund)
       ) %>%
-      group_by(patient, posid, gene_id) %>%
-      mutate(num_tp = n_distinct(tp)) %>%
-      ungroup() %>%
-      group_by(num_tp) %>%
-      mutate(pf = as.integer(factor(pf, levels = sort(unique(pf))))) %>%
-      ungroup
+      dplyr::group_by(patient, posid, gene_id) %>%
+      dplyr::mutate(num_tp = n_distinct(tp)) %>%
+      dplyr::ungroup() %>%
+      dplyr::group_by(num_tp) %>%
+      dplyr::mutate(pf = as.integer(factor(pf, levels = sort(unique(pf))))) %>%
+      dplyr::ungroup()
 
     # Formated for 7"w by 3"h
     split_plot_data <- split(plot_data, plot_data$patient)
@@ -3614,8 +3612,8 @@ long_clone_plots <- within(
     long_plots <- lapply(split_plot_data, function(df){
       
       df <- df %>%
-        arrange(desc(estAbund)) %>%
-        mutate(
+        dplyr::arrange(desc(estAbund)) %>%
+        dplyr::mutate(
           patient = paste0("Patient: ", patient),
           plot_id = paste0(gene_id, "\n", posid),
           plot_id = factor(plot_id, levels = unique(plot_id))

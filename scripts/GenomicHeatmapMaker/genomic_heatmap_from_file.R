@@ -27,6 +27,8 @@ parser$add_argument("-r", "--ref_genome", type="character", default="hg18",
     help="reference genome used for all samples")
 parser$add_argument("-f", "--file", type="character", default=NULL,
     help="File with sites. CSV format. Included columns: seqnames, strand, position, sampleName, refGenome.")
+parser$add_argument("-u", "--utils", type="character", default=NULL,
+    help="File path to directory with utility reference files.")
 
 args <- parser$parse_args()
 args

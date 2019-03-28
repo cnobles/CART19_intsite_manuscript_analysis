@@ -104,9 +104,6 @@ read_special_genelist <- function(file){
 }
 
 ## Reference and supporting files ----
-source(file.path(scriptDir, "supporting_functions.R"))
-source(file.path(scriptDir, "supporting_goa_functions.R"))
-
 intsiteSpecimenMetadata <- read.csv(
   file.path(outputDir, "cart19_intsite_sample_list.csv")
 )
@@ -231,6 +228,8 @@ cond_uniq_sites <- cond_uniq_sites[
 
 tp_sites <- cond_uniq_sites[cond_uniq_sites$timepoint != "d0"]
 
+cluster_list <- readRDS(file.path(outputDir, "cart19_clusters.rds"))
+
 gene_stats <- read.csv(
     file.path(outputDir, "cart19_gene_stats.csv")) %>%
   dplyr::mutate(gene_name = alias_arbiter(
@@ -242,8 +241,8 @@ gene_stats <- read.csv(
 gene_impact <- readRDS(
     file.path(outputDir, "cart19_gene_impact.rds")) %>%
   dplyr::select(
-    -Within_Cluster, -Cluster_target.min, -ort_fisher_test, -ort_fisher_test_CR,
-    -ort_fisher_test_NR) %>%
+    -ort_fisher_test, -ort_fisher_test_CR, -ort_fisher_test_NR
+  ) %>%
   dplyr::filter(!gene_name %in% excluded_gene_names) %>%
   dplyr::mutate(gene_name = alias_arbiter(
     IDs = gene_name,
@@ -251,25 +250,6 @@ gene_impact <- readRDS(
     aliasIDs = hgnc_complete$extended_alias,
     sep = "|", remove_absent_IDs = NULL, quiet = TRUE))
 
-
-# Generate Random Integration sites for comparision ----
-random_sites <- selectRandomSites(
-  num = sum(gene_impact$TDN_num_sites, gene_impact$TP_num_sites),
-  refGenome = refGenome, 
-  setSeed = 714
-)
-
-random_sites <- hiAnnotator::getSitesInFeature(
-  random_sites, 
-  ref_genes, 
-  colnam = "in_gene", 
-  feature.colnam = "name2"
-)
-
-random_sites <- random_sites[random_sites$in_gene != FALSE]
-random_sites$is_onco <- random_sites$in_gene %in% onco_genes
-random_sites$is_cosmic <- random_sites$in_gene %in% cosmic_genes
-random_sites$is_tumSup <- random_sites$in_gene %in% tum_sups
 
 # Import KEGG pathways ----
 k_list <- keggList("hsa")
@@ -625,7 +605,7 @@ df4.1 <- dplyr::select(
     df4, gene_name, TP_num_patients, TDN_num_sites, TP_num_sites, 
     Cluster_target.min, On_Onco_List
   ) %>%
-  rename(
+  dplyr::rename(
     "Gene" = gene_name, "Num. Patients" = TP_num_patients, 
     "TDN Sites" = TDN_num_sites, "Patient Sites" = TP_num_sites, 
     "Cluster Min. FDR" = Cluster_target.min, "Onco-Related" = On_Onco_List
@@ -741,7 +721,7 @@ df6 <- dplyr::filter(
   ) %>%
   dplyr::ungroup() %>%
   dplyr::arrange(
-    desc(rowSums(matrix(c(enr_freq, abund, long), ncol = 3))), 
+    desc(rowSums(matrix(c(enr_freq, abund, long, clust), ncol = 4))), 
     desc(TP_num_patients))
 
 go6 <- fisher_hyper_GO_test(
@@ -777,8 +757,8 @@ kegg6$grp <- cluster_by_list_similarity(
   cores = numCores
 )
 
-# Detailed table of genes identified meeting the specified criteria (>= 2)
-df6.1 <- dplyr::filter(df6, count >= 2) %>%
+# Detailed table of genes identified meeting the specified criteria (>= 3)
+df6.1 <- dplyr::filter(df6, count >= 3) %>%
   dplyr::mutate(pct_chg = round(pct_chg, digits = 1)) %>%
   dplyr::select(
     gene_name, TP_num_patients, pct_chg, TP_peak_abund, max_time, crit_id
@@ -892,6 +872,28 @@ kegg_heatmap_data <- as.data.frame(kegg_term_matrix) %>%
   )
 
 
+# Generate Random Integration sites for comparision ----
+random_sites <- selectRandomSites(
+  num = sum(gene_impact$TDN_num_sites, gene_impact$TP_num_sites),
+  refGenome = refGenome, 
+  setSeed = 714
+)
+
+random_sites <- hiAnnotator::getSitesInFeature(
+  random_sites, 
+  ref_genes, 
+  colnam = "in_gene", 
+  feature.colnam = "name2"
+)
+
+random_sites <- random_sites[random_sites$in_gene != FALSE]
+random_sites$is_onco <- random_sites$in_gene %in% onco_genes
+random_sites$is_cosmic <- random_sites$in_gene %in% cosmic_genes
+random_sites$is_tumSup <- random_sites$in_gene %in% tum_sups
+
+random_genes <- sample(gene_impact$gene_name, nrow(df6), replace = FALSE)
+
+
 ## Supporting data ----
 df7 <- dplyr::filter(df6, tcount >= 2) %>%
   dplyr::arrange(desc(count), desc(pct_chg), desc(abund), desc(long)) %>%
@@ -985,8 +987,8 @@ sig_onco <- p.adjust(sapply(seq_len(nrow(df5)), function(i){
   mat <- matrix(c(
     df5$gene_count[i] * df5$onco_genes[i] / 100,
     df5$gene_count[i] * (1 - (df5$onco_genes[i] / 100)),
-    length(random_sites[random_sites$is_onco]),
-    length(random_sites[!random_sites$is_onco])),
+    sum(random_genes %in% onco_genes),
+    sum(!random_genes %in% onco_genes)),
     ncol = 2)
   fisher.test(mat)$p.value
   }), 
@@ -997,8 +999,8 @@ sig_cosmic <- p.adjust(sapply(seq_len(nrow(df5)), function(i){
   mat <- matrix(c(
     df5$gene_count[i] * df5$cosmic_genes[i] / 100,
     df5$gene_count[i] * (1 - (df5$cosmic_genes[i] / 100)),
-    length(random_sites[random_sites$is_cosmic]),
-    length(random_sites[!random_sites$is_cosmic])),
+    sum(random_genes %in% cosmic_genes),
+    sum(!random_genes %in% cosmic_genes)),
     ncol = 2)
   fisher.test(mat)$p.value
   }), 
@@ -1009,8 +1011,8 @@ sig_tumSup <- p.adjust(sapply(seq_len(nrow(df5)), function(i){
   mat <- matrix(c(
     df5$gene_count[i] * df5$tumor_sups[i] / 100,
     df5$gene_count[i] * (1 - (df5$tumor_sups[i] / 100)),
-    length(random_sites[random_sites$is_tumSup]),
-    length(random_sites[!random_sites$is_tumSup])),
+    sum(random_genes %in% tum_sups),
+    sum(!random_genes %in% tum_sups)),
     ncol = 2)
   fisher.test(mat)$p.value
   }), 
@@ -1045,17 +1047,18 @@ df5 %>%
     c(" ", "Gene", "Onco", "COSMIC", "Tumor", "GO-annot.", "KEGG-annot."))
 ```
 
-**Table 1** summarizes the size and contents of each criteria gene list identified by the various methods. **Figure 1** plots the amount of intersection between the criteria gene lists. A relatively small number of genes (`r length(unique(df6.1$Gene))`)  are in Table 2 that represent genes identified by at least 2 methods. Proportions with asterisk (\*) indicate significant difference from random sites across the genome (Onco Related: `r format(100 * length(random_sites[random_sites$is_onco]) / length(random_sites), digits = 3)`%; Tumor Suppressors: `r format(100 * length(random_sites[random_sites$is_tumSup]) / length(random_sites), digits = 3)`%; Total Sites: `r format(length(random_sites), big.mark = ",")`).
+**Table 1** summarizes the size and contents of each criteria gene list identified by the various methods. **Figure 1** plots the amount of intersection between the criteria gene lists. A relatively small number of genes (`r length(unique(df6.1$Gene))`)  are in Table 2 that represent genes identified by at least 2 methods. Proportions with asterisk (\*) indicate significant difference from random sites across the genome (Onco Related: `r format(100 * length(random_sites[random_sites$is_onco]) / length(random_sites), digits = 3)`%; COSMIC Related: `r format(100 * length(random_sites[random_sites$is_cosmic]) / length(random_sites), digits = 3)`%; Tumor Suppressors: `r format(100 * length(random_sites[random_sites$is_tumSup]) / length(random_sites), digits = 3)`%; Total Sites: `r format(length(random_sites), big.mark = ",")`).
 
 ```{r upset_summary_plot, fig.height=5.0, fig.cap=fig1cap}
 inter_df <- dplyr::select(
-    df6, enr_freq, dep_freq, abund, long, tcount) %>%
+    df6, enr_freq, dep_freq, abund, long, clust, tcount) %>%
   dplyr::filter(tcount > 1) %>%
   dplyr::arrange(tcount) %>%
-  dplyr::distinct(enr_freq, dep_freq, abund, long) %>%
+  dplyr::distinct(enr_freq, dep_freq, abund, long, clust) %>%
   dplyr::rename(
     "Enrichment" = enr_freq, "Depletion" = dep_freq, 
-    "Abundance" = abund, "Longitudinal" = long
+    "Abundance" = abund, "Longitudinal" = long,
+    "Clusters" = clust
   ) %>%
   as.data.frame()
 
@@ -1064,7 +1067,7 @@ criteria_intersections <- lapply(seq_len(nrow(inter_df)), function(i){
 })
 
 upset(
-  fromList(potential_genes[1:4]),
+  fromList(potential_genes[1:5]),
   nsets = ncol(inter_df),
   matrix.color = "black", 
   main.bar.color = "black", 
@@ -1086,8 +1089,7 @@ kable(
     caption = tbl2cap, align = "c"
   ) %>%
   kableExtra::kable_styling(
-    latex_options = c("hold_position"),
-    font_size = 9
+    latex_options = c("hold_position")
   )
 ```
 

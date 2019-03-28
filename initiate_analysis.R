@@ -236,7 +236,8 @@ if( !file.exists("data/manuscript_genomic_std_heatmap/roc.res.rds") ){
       "data/manuscript_std_heatmap_samples.csv ",
       "-f data/manuscript_std_heatmap_sites.csv ",
       "-o data/manuscript_genomic_std_heatmap ",
-      "-r hg38 -c utils/INSPIIRED.yml"
+      "-r hg38 -c utils/INSPIIRED.yml ",
+      "-u utils"
     ), 
     wait = TRUE
   )

@@ -12,7 +12,7 @@ Rv <- as.numeric(
 
 if( Rv < 340){
   stop("\n  **Insufficient version of R detected.**\n",
-       "  Please use a minimum R version of 3.4.0.")
+       "  Please use a minimum R version of 3.4.0.\n")
 }
 
 r_libs <- c(
@@ -105,13 +105,13 @@ if( !all(is_installed) ){
   )
 
   if( !all(is_installed) ){
-    stop("\n[", paste(Sys.time()), "] Not all required R-packages have been installed. Check dependencies.")
+    stop("\n[", paste(Sys.time()), "] Not all required R-packages have been installed. Check dependencies.\n")
   }else{
-    cat("\n[", paste(Sys.time()), "] All required packages installed from extra sources.")
+    cat("\n[", paste(Sys.time()), "] All required packages installed from extra sources.\n")
   }
   
 }else{
   
-  cat("\n[", paste(Sys.time()), "] All required packages installed from sources.")
+  cat("\n[", paste(Sys.time()), "] All required packages installed from sources.\n")
   
 }
