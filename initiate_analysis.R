@@ -326,6 +326,9 @@ if(
   ){
     
     cat("[", paste(Sys.time()), "] Reports generated. Analysis has completed.\n")
+    
+    print(sessionInfo())
+    
     q()
     
   }else{

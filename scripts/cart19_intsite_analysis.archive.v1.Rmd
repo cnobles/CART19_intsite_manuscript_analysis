@@ -2782,7 +2782,7 @@ grid.arrange(
 ```
 Figure 5AB. A total of 91 features spanning population metrics, genomic, and epigenetic features from 29 patients were used in a least absolute shrinkage and selection operator (LASSO) logistic regression to build a classification model.  Results from leave-one-out cross-validation of models based on A) transduction products and B) day 28 peripherial blood samples. Misclassification error is reduced as models get more accurate, and often more complex (number of variables presented on the x-axis). Error bars indicated standard error and the minimum value of misclassification is indicate on the right of the plots. 
 
-```{r fig5CD, fig.height=6, fig.width=10.25, out.width="66%"}
+```{r fig5CD, fig.height=6, fig.width=10.25, out.width="80%"}
 # Model contributions
 model_analysis <- within(
   model_analysis, {
@@ -3243,7 +3243,7 @@ gen_express <- within(
       ggplot(aes(x = rank_grp, y = pct * 100, color = type)) +
       geom_point() + 
       geom_line(alpha = 0.25) +
-      facet_wrap(type ~ ., ncol = 1, scales = "free") +
+      facet_wrap(type ~ ., ncol = 1, scales = "free_x") +
       scale_x_continuous(breaks = 1:10, labels = 1:10) +
       scale_color_brewer(type = "qual", palette = "Set1") +
       labs(
