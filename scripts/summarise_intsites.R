@@ -18,13 +18,45 @@ if(
   null <- suppressMessages(sapply(packs, require, character.only = TRUE)) 
   
   # Load genomic and epigenetic features -----------------------------------------
-  CpG_islands <- getCpG_islands(genomicFreeze)
-  DNaseI <- suppressWarnings(getDNaseI(genomicFreeze))
   genome_sequence <- BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38
   genome_sequence@user_seqnames <- genome_sequence@user_seqnames[
     genome_sequence@user_seqnames %in% paste0("chr", c(1:22, "X", "Y", "M"))]
   genome_sequence@seqinfo <- genome_sequence@seqinfo[
     paste0("chr", c(1:22, "X", "Y", "M"))]
+  
+  #CpG_islands <- getCpG_islands(genomicFreeze)
+  CpG_data <- cpg <- getUCSCtable(
+      "cpgIslandExt", "CpG Islands", freeze = "hg38"
+    ) %>%
+    dplyr::filter(chrom %in% paste0("chr", c(1:22, "X", "Y", "M")))
+  
+  CpG_islands <- GenomicRanges::GRanges(
+    seqnames = CpG_data$chrom,
+    ranges = IRanges::IRanges(
+      start = CpG_data$chromStart, end = CpG_data$chromEnd
+    ),
+    strand = "*",
+    seqinfo = GenomeInfoDb::seqinfo(genome_sequence)
+  )
+  
+  mcols(CpG_islands) <- CpG_data
+  
+  #DNaseI <- suppressWarnings(getDNaseI(genomicFreeze))
+  DNaseI_data <- getUCSCtable(
+      "wgEncodeRegDnaseClustered", "DNase Clusters", freeze = "hg38"
+    ) %>%
+    dplyr::filter(chrom %in% paste0("chr", c(1:22, "X", "Y", "M")))
+  
+  DNaseI <- GenomicRanges::GRanges(
+    seqnames = DNaseI_data$chrom,
+    ranges = IRanges::IRanges(
+      start = DNaseI_data$chromStart, end = DNaseI_data$chromEnd
+    ),
+    strand = "*",
+    seqinfo = GenomeInfoDb::seqinfo(genome_sequence)
+  )
+  
+  mcols(DNaseI) <- DNaseI_data
   
   ## windows
   window_size_refSeq <- c("10k"=1e4, "100k"=1e5, "1M"=1e6)
@@ -215,29 +247,27 @@ if(
     dplyr::inner_join(stats, by = "specimen") %>%
     dplyr::left_join(gen_epi_summary, by = "specimen")
   
-  if(trial == "CART19"){
-    specimen_data$clustersRepresented <- sapply(
-      specimen_data$specimen, function(x){
-        sites <- cond_uniq_sites[cond_uniq_sites$specimen == x]
-        hits <- findOverlaps(sites, red_clusters)
-        length(unique(subjectHits(hits)))
-      })
-  
-    specimen_data$numSitesInClusters <- sapply(
-      specimen_data$specimen, function(x){
-        sites <- cond_uniq_sites[cond_uniq_sites$specimen == x]
-        hits <- findOverlaps(sites, red_clusters)
-        length(unique(queryHits(hits)))
-      })
-  
-    specimen_data$abundInClusters <- sapply(
-      specimen_data$specimen, function(x){
-        sites <- cond_uniq_sites[cond_uniq_sites$specimen == x]
-        hits <- findOverlaps(sites, red_clusters)
-        sum(sites[queryHits(hits)]$estAbund)
-      })
-  }
-    
+  specimen_data$clustersRepresented <- sapply(
+    specimen_data$specimen, function(x){
+      sites <- cond_uniq_sites[cond_uniq_sites$specimen == x]
+      hits <- findOverlaps(sites, red_clusters)
+      length(unique(subjectHits(hits)))
+    })
+
+  specimen_data$numSitesInClusters <- sapply(
+    specimen_data$specimen, function(x){
+      sites <- cond_uniq_sites[cond_uniq_sites$specimen == x]
+      hits <- findOverlaps(sites, red_clusters)
+      length(unique(queryHits(hits)))
+    })
+
+  specimen_data$abundInClusters <- sapply(
+    specimen_data$specimen, function(x){
+      sites <- cond_uniq_sites[cond_uniq_sites$specimen == x]
+      hits <- findOverlaps(sites, red_clusters)
+      sum(sites[queryHits(hits)]$estAbund)
+    })
+
   write.csv(
     specimen_data,
     file = file.path(outputDir, "cart19_specimen_summary.csv"),
@@ -248,12 +278,8 @@ if(
     cond_uniq_annot,
     file = file.path(outputDir, "cart19_annotated_uniq_sites.rds"))
   
-  if( trial != "CART19" ){
-    cat("End of script for non-CART19 trials.\n")
-    q()
-  }
-  
-  # Timepoint Summary ------------------------------------------------------------
+
+  # Timepoint Summary ----------------------------------------------------------
   cond_uniq_sites$timepoint <- factor(
     cond_uniq_sites$timepoint, levels = timepointLevels)
   
@@ -517,4 +543,12 @@ if(
     row.names = FALSE,
     col.names = FALSE)
 
+}else{
+  
+  cond_uniq_annot <- readRDS(
+    file.path(outputDir, "cart19_annotated_uniq_sites.rds")
+  )
+  
+  summaries <- readRDS(file.path(outputDir, "cart19_summaries.rds"))
+  
 }

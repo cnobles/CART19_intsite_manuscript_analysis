@@ -297,4 +297,25 @@ if(
     row.names = FALSE
   )
 
+}else{
+  
+  enriched_tdn_clus <- readRDS(
+    file.path(outputDir, "cart19_tdn_enriched_clusters.rds")
+  )
+  
+  enriched_timepoint_clus <- readRDS(
+    file.path(outputDir, "cart19_timepoint_enriched_clusters.rds")
+  )
+
+  composite_clusters <- readRDS(file.path(outputDir, "cart19_clusters.rds"))
+  
+  clusters <- composite_clusters[c(
+    "timepoint_clusters", "positive_strand_clusters", 
+    "negative_strand_clusters", "high_abund_clusters"
+  )]
+    
+  cart19_clusters <- composite_clusters[["all_clusters"]] 
+  
+  red_clusters <- composite_clusters[["red_clusters"]]
+  
 }

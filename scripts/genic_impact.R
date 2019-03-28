@@ -198,4 +198,8 @@ if(
     row.names = FALSE
   )
 
+}else{
+  
+  gene_stats <- readRDS(file.path(outputDir, "cart19_gene_impact.rds"))
+  
 }

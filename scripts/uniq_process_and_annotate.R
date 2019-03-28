@@ -156,5 +156,11 @@ if(
   
   saveRDS(
     timepoint_sites, file = file.path(outputDir, "cart19_timepoint_sites.rds"))
+}else{
+  
+  cond_uniq_sites <- readRDS(file.path(outputDir, "condensed_intsites.rds"))
+  tdn_sites <- readRDS(file.path(outputDir, "cart19_tdn_sites.rds"))
+  timepoint_sites <- readRDS(file.path(outputDir, "cart19_timepoint_sites.rds"))
+  
 }
 

@@ -173,4 +173,8 @@ if(
     row.names = FALSE
   )
 
+}else{
+  
+  region_stats <- readRDS(file.path(outputDir, "cart19_intergene_impact.rds"))
+  
 }

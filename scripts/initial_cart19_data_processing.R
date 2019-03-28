@@ -295,7 +295,8 @@ if( all(c(
     uniqSitesData <- uniqSitesData[, !duplicated(colnames(uniqSitesData))]
     
     cat(
-      "Acquired unique integration site data from", 
+      "[", paste(Sys.time()),
+      "] Acquired unique integration site data from", 
       format(sum(uniqSitesData$count), big.mark = ","),
       "sequence reads.\n"
     )
@@ -688,8 +689,8 @@ if( all(c(
   
   # Completed ----
   cat(
-    "[", paste(Sys.time()), "] Initial processing has competed.\n", 
-    "[", paste(Sys.time()), "] Output files can be found at: ", outputDir, "\n",
+    "[ ", paste(Sys.time()), " ] Initial processing has competed.\n", 
+    "[ ", paste(Sys.time()), " ] Output files can be found at: ", outputDir, "\n",
     sep = ""
   )
   
