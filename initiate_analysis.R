@@ -283,6 +283,10 @@ if(
   
   cat("[", paste(Sys.time()), "] Reports found in reports directory. Analysis complete.\n")
   
+  print(sessionInfo())
+  
+  q()
+  
 }else{
 
   cat("[", paste(Sys.time()), "] Starting report generation, first goi report...\n")
