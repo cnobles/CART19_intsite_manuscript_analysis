@@ -2,7 +2,7 @@
 # This script loads required packages and reference data into a processing
 # environment. It is sourced by initiate_analysis.R.
 
-options(stringsAsFactors = FALSE, scipen = 99, width = 999)
+options(stringsAsFactors = FALSE, scipen = 99)
 
 packs <- c(
   "BiocGenerics", "Biostrings", "GenomicRanges", "geneRxCluster", "hiAnnotator",

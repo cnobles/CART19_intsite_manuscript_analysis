@@ -3,7 +3,7 @@
 # and install those that are missing from a cran mirror (mran).
 
 # Options
-options(stringsAsFactors = FALSE, scipen = 99, width = 999)
+options(stringsAsFactors = FALSE, scipen = 120)
 
 # Check R-version
 Rv <- as.numeric(
