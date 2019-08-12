@@ -257,3 +257,60 @@ convert_time <- function(timecode){
   time_convert <- c("d" = 1, "m" = 30, "y" = 365)
   unname(timepoint * time_convert[scale])
 }
+
+#' Plot multivariate analysis
+#' 
+plot_mva <- function(D, cl){ 
+  
+  stopifnot(ncol(D) >= 2)
+  
+  Y <- as.data.frame(D[,1:2]) %>%
+    dplyr::mutate("Class" = cl)
+  
+  names(Y) <- c("V1", "V2", "Class")
+  
+  Ym <- Y %>% 
+    dplyr::group_by(Class) %>% 
+    dplyr::summarise_all(mean) %>% 
+    dplyr::ungroup()
+  
+  Yl <- Y %>% 
+    dplyr::mutate(
+      E1 = Ym$V1[match(Class, Ym$Class)], E2 = Ym$V2[match(Class, Ym$Class)]
+    )
+  
+  ggplot() +
+    geom_hline(yintercept = 0, color = "grey70") + 
+    geom_vline(xintercept = 0, color = "grey70") + 
+    geom_segment(
+      data = Yl,
+      aes(x = V1, xend = E1, y = V2, yend = E2, color = Class)
+    ) + 
+    stat_ellipse(data = Y, aes(x = V1, y = V2, color = Class)) + 
+    geom_point(
+      data = Y, aes(x = V1, y = V2, fill = Class),
+      size = 3, color = "white", shape = 21
+    ) + 
+    geom_point(
+      data = Ym, aes(x = V1, y = V2, fill = Class),
+      size = 5, color = "white", shape = 24
+    ) +
+    geom_rug(data = Y, aes(x = V1, y = V2, color = Class), sides = "b") + 
+    scale_color_brewer(type = "qual", palette = "Set1") + 
+    scale_fill_brewer(type = "qual", palette = "Set1")
+  
+}
+
+base_theme <- theme_bw() + 
+  theme(
+    panel.border = element_blank(),
+    axis.line = element_line(color = "black"),
+    panel.grid = element_blank(),
+    strip.background = element_rect(fill = "white"),
+    strip.text = element_text(face = "bold", color = "black"), 
+    axis.text = element_text(face = "bold", color = "black"), 
+    axis.title = element_text(face = "bold", color = "black"), 
+    legend.title = element_text(face = "bold", color = "black"), 
+    legend.position = "bottom"
+  )
+

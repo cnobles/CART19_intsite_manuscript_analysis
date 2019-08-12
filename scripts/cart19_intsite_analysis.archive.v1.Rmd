@@ -14,8 +14,8 @@ output:
     df_print: default
     highlight: espresso
 header-includes: 
-  - \usepackage{float}
-  - \usepackage{indentfirst}
+  - \usepackage{float,indentfirst,booktabs,longtable,array,multirow,pdflscape,tabu}
+  - \usepackage[normalem]{ulem}
   - \setlength{\defaultaddspace}{0em}
   - \setlength{\parindent}{2em}
 fontsize: 11pt
@@ -81,54 +81,7 @@ source(file.path(scriptDir, "supporting_goa_functions.R"))
 source(file.path(scriptDir, "GenomicHeatmapMaker/utils.R"))
 source(file.path(scriptDir, "EpigeneticHeatmapMaker/utils.R"))
 
-key_gois <- c("TET2")
-
-intsiteSpecimenMetadata <- read.csv(
-    file.path(workingDir, "data/cart19_intsite_sample_list.csv")) %>%
-  dplyr::mutate(clin_trial = str_extract(Patient_ID, "[0-9]+"))
-
-refGenes <- readRDS(file.path(utilsDir, "hg38.refSeq.rds"))
-
-refGenes <- refGenes[
-  seqnames(refGenes) %in% paste0("chr", c(1:22, "X", "Y", "M"))
-]
-
-excluded_gene_names <- c(
-  "TET2-AS1", "HNRNPUL2-BSCL2", "ANKHD1-EIF4EBP3", "TONSL-AS1", 
-  "ATP6V1G2-DDX39B", "C7orf55-LUC7L2"
-)
-
-excluded_sites <- c("PCCA" = "chr13-100350286", "NRP1" = "chr10+33114980")
-
-oncoGenesData <- read.delim(
-  file.path(utilsDir, "allOnco.human.v3.tsv"),
-  header = TRUE, 
-  sep = "\t",
-  stringsAsFactors = FALSE
-)
-
-oncoGenes <- unique(oncoGenesData[,"symbol"])
-nonOncoGenes <- unique(refGenes$name2[!refGenes$name2 %in% oncoGenes])
-
-badActors <- read.delim(
-  file.path(utilsDir, "humanLymph.v1.list"),
-  header = FALSE,
-  sep = "\t",
-  stringsAsFactors = FALSE
-)[,1]
-
-genomic_features_path <- file.path(scriptDir, "GenomicHeatmapMaker")
-epigenetic_features_path <- "/data/internal/epigeneticData/hg38" # Not archivable
-
-epigenetic_features_files <- list.files(epigenetic_features_path) %>%
-  grep("HeLa", ., invert = TRUE, value = TRUE) %>%
-  grep("CD133", ., invert = TRUE, value = TRUE) %>%
-  grep("HEK293T", ., invert = TRUE, value = TRUE) %>%
-  grep("Jurkat", ., invert = TRUE, value = TRUE) %>%
-  file.path(epigenetic_features_path, .)
-
-
-# Import HGNC reference data for annotation and consistency ----
+## Import HGNC reference data for annotation and consistency ----
 hgnc_complete <- fread(
   paste0("zcat ", file.path(utilsDir, "hgnc_complete_set.180207.txt.gz")),
   sep = "\t", header = TRUE, 
@@ -155,6 +108,101 @@ hgnc_complete <- dplyr::filter(hgnc_complete, !grepl("withdrawn", symbol)) %>%
       alias_symbol, "|", prev_symbol, "|", ensembl_gene_id, "|", 
       refseq_accession, "|", uniprot_ids)
   )
+
+## Setup gene sets and lists ----
+key_gois <- c("TET2")
+
+intsiteSpecimenMetadata <- read.csv(
+    file.path(workingDir, "data/cart19_intsite_sample_list.csv")) %>%
+  dplyr::mutate(clin_trial = str_extract(Patient_ID, "[0-9]+"))
+
+refGenes <- readRDS(file.path(utilsDir, "hg38.refSeq.rds"))
+
+refGenes <- refGenes[
+  seqnames(refGenes) %in% paste0("chr", c(1:22, "X", "Y", "M"))
+]
+
+refGenes$name2 <- alias_arbiter(
+    IDs = refGenes$name2, 
+    RefIDs = hgnc_complete$symbol,
+    aliasIDs = hgnc_complete$extended_alias,
+    sep = "|", remove_absent_IDs = NULL, quiet = TRUE
+  )
+
+excluded_gene_names <- c(
+  "TET2-AS1", "HNRNPUL2-BSCL2", "ANKHD1-EIF4EBP3", "TONSL-AS1", 
+  "ATP6V1G2-DDX39B", "C7orf55-LUC7L2"
+)
+
+excluded_sites <- c("PCCA" = "chr13-100350286", "NRP1" = "chr10+33114980")
+
+oncoGenesData <- read.delim(
+  file.path(utilsDir, "allOnco.human.v3.tsv"),
+  header = TRUE, 
+  sep = "\t",
+  stringsAsFactors = FALSE
+)
+
+oncoGenes <- unique(oncoGenesData[,"symbol"]) %>%
+  alias_arbiter(
+    IDs = ., 
+    RefIDs = hgnc_complete$symbol,
+    aliasIDs = hgnc_complete$extended_alias,
+    sep = "|", remove_absent_IDs = NULL, quiet = TRUE
+  )
+
+nonOncoGenes <- unique(refGenes$name2[!refGenes$name2 %in% oncoGenes])
+
+tum_sups <- read.delim(file.path(utilsDir, "TSGene.tsv"))$GeneSymbol %>%
+  alias_arbiter(
+    IDs = ., 
+    RefIDs = hgnc_complete$symbol,
+    aliasIDs = hgnc_complete$extended_alias,
+    sep = "|", remove_absent_IDs = NULL, quiet = TRUE
+  )
+
+badActors <- read.delim(
+    file.path(utilsDir, "humanLymph.v1.list"),
+    header = FALSE,
+    sep = "\t",
+    stringsAsFactors = FALSE
+  )[,1] %>%
+  alias_arbiter(
+    IDs = ., 
+    RefIDs = hgnc_complete$symbol,
+    aliasIDs = hgnc_complete$extended_alias,
+    sep = "|", remove_absent_IDs = NULL, quiet = TRUE
+  )
+
+if( file.exists(file.path(utilsDir, "COSMIC_cancer_gene_census.csv")) ){
+  
+  cosmic_genes <- read.csv(
+      file.path(utilsDir, "COSMIC_cancer_gene_census.csv")
+    ) %>%
+    dplyr::mutate(
+      gene_name = hgnc_complete$symbol[match(
+        Entrez.GeneId, stringr::str_extract(hgnc_complete$entrez_id, "[\\d]+")
+      )],
+      gene_name = ifelse(is.na(gene_name), Gene.Symbol, gene_name)
+    ) %$%
+    gene_name
+    
+}else{
+  
+  cosmic_genes <- vector(mode = "character")
+  
+}
+
+genomic_features_path <- file.path(scriptDir, "GenomicHeatmapMaker")
+epigenetic_features_path <- "/data/internal/epigeneticData/hg38" # Not archivable
+
+epigenetic_features_files <- list.files(epigenetic_features_path) %>%
+  grep("HeLa", ., invert = TRUE, value = TRUE) %>%
+  grep("CD133", ., invert = TRUE, value = TRUE) %>%
+  grep("HEK293T", ., invert = TRUE, value = TRUE) %>%
+  grep("Jurkat", ., invert = TRUE, value = TRUE) %>%
+  file.path(epigenetic_features_path, .)
+
 
 ## Develop standard factor scales for celltypes and timepoints ----
 celltypeLevels <- c(
@@ -243,7 +291,6 @@ NR_pats <- patient_data$patient[patient_data$determinant_response == "PR_NR"]
 
 ## Load integration site analysis data ----
 data_files <- list.files(outputDir)
-
 
 ### Load specimen_data
 file <- grep("specimen_data", data_files, value = TRUE)
@@ -334,11 +381,14 @@ gene_impact <- readRDS(
     -Within_Cluster, -Cluster_target.min, -ort_fisher_test, -ort_fisher_test_CR,
     -ort_fisher_test_NR) %>%
   dplyr::filter(!gene_name %in% excluded_gene_names) %>%
-  dplyr::mutate(gene_name = alias_arbiter(
-    IDs = gene_name,
-    RefIDs = hgnc_complete$symbol,
-    aliasIDs = hgnc_complete$extended_alias,
-    sep = "|", remove_absent_IDs = NULL, quiet = TRUE))
+  dplyr::mutate(
+    gene_name = alias_arbiter(
+      IDs = gene_name,
+      RefIDs = hgnc_complete$symbol,
+      aliasIDs = hgnc_complete$extended_alias,
+      sep = "|", remove_absent_IDs = NULL, quiet = TRUE
+    )
+  )
 
 goi_data <- read.csv(
     file.path(outputDir, list.files(outputDir, pattern = "cart19_goi_data.csv"))
@@ -350,7 +400,9 @@ goi_lists <- lapply(
   function(x) goi_data$Gene_Name[goi_data[, x, drop = TRUE]] 
 )
 
-names(goi_lists) <- c("Enrichment", "Depletion", "Abundance", "Longitudinal")
+names(goi_lists) <- c(
+  "Enrichment", "Depletion", "Abundance", "Longitudinal" #, "Cluster"
+)
 
 ### Load the filtered unique integration sites as a reference
 all_sites <- grep("filtered_unique_intsites", data_files, value = TRUE)
@@ -450,6 +502,8 @@ go_genes <- unique(unlist(all_GOBP_list))
 
 \newpage
 ## Figure 1. Experimental strategy and examples of results.
+Figure 1. Experimental strategy and examples of results. (A) Diagram of the method for analyzing integration site distributions. Cells are harvested by apheresis, then transduced with the lentiviral vector encoding the CAR (top). Integration site distributions were quantified at several time points (middle; bottom). For this, DNA was isolated, then cleaved by sonication. DNA adaptors were ligated onto the free DNA ends, then PCR carried out using primers binding to the adaptor and the integrated vector DNA. PCR products were then sequenced and reads aligned to the human genome. The abundance of each transduced cell clone was inferred by the number of adaptor positions associated with each unique integration site (bottom; stacked bar graph). 
+
 ```{r fig1B, fig.width=7.5, fig.height=3.5}
 vcn_summary <- within(
   list(), {
@@ -678,8 +732,9 @@ vcn_summary <- within(
 
 vcn_summary$vcn_plot
 ```
-Figure 1B. B) Vector copy number (VCN) data from peripheral blood samples taken from CR/PRtd or PR/NR patients compared longitudinally over 3 years. Black line through data indicates moving average of data while surrounding grey area indicates 95% confidence interval. Data below 10 copies per microgram was considered below the limit of detection (LOD). Peak expansion was assessed as maximal VCN within peripherial blood for each patient during 10 to 21 days post-infusion, significant difference between outcome groups was tested by a two-tailed Wilcoxon test.
+Figure 1. (B) Vector copy number (VCN) analyzed by QPCR longitudinally, comparing CR/PRtd to PR/NR. Peak expansion was assessed as maximal VCN 10 to 21 days post-infusion. The difference in medians was tested using the Wilcoxon Rank-sum test. 
 
+\newpage
 ```{r specimen_barplots}
 intsite_barplots <- within(
   list(), {
@@ -904,57 +959,36 @@ response_barplot <- within(
         aes(x = timepoint, y = bp_relabund, fill = bp_id), 
         stat = "identity") +
       facet_grid(
-        resp + patient ~ celltype, 
+        patient + resp ~ celltype, 
         scales = "free", space = "free") +
       scale_fill_manual(values = curated_data$bp_colors[match(
         levels(curated_data$bp_id), 
         as.character(curated_data$bp_id))]) +
-      labs(y = "Relative Abundance", x = "Timepoint", fill = NULL) +
+      labs(y = "% Relative Abundance", x = "Timepoint", fill = NULL) +
       scale_y_continuous(
-        breaks = c(0, 0.25, 0.5, 0.75, 1.0), labels = scales::percent) +
+        breaks = c(0, 0.25, 0.5, 0.75, 1.0), labels = seq(0, 100, 25)) +
       custom_theme +
       theme(
-        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+        axis.text.x = element_text(angle = 0, hjust = 0.5, vjust = 1),
         legend.position = "none",
-        strip.text.y = element_text(angle = 0, face = "plain", size = 11),
+        strip.text.y = element_text(
+          angle = 0, face = "plain", size = 11, hjust = 0
+        ),
         strip.text.x = element_text(face = "plain", size = 10),
         panel.background = element_rect(color = "black"))
     
-    # Chao1 plot: 4.5" x 3.5"
-    
-    chao1_plot <- dplyr::filter(
-        summaries$specimen, specimen %in% curated_data$specimen) %>%
-      dplyr::select(specimen, numUniqSites, Chao1) %>%
-      dplyr::mutate(
-        Chao1 = ifelse(Chao1 < numUniqSites, numUniqSites, Chao1),
-        logChao1 = log(Chao1, base = 10)) %>%
-      left_join(curated_data, ., by = "specimen") %>%
-      dplyr::distinct(specimen, patient, timepoint, celltype, Chao1, logChao1) %>%
-      ggplot(aes(x = timepoint, y = logChao1, group = patient)) +
-      geom_line(color = "black") +
-      geom_point(color = "white", size = 3) +
-      geom_point(color = "blue", size = 2) +
-      facet_grid(resp + patient ~ ., scales = "free") +
-            labs(y = "Log(Chao1)", x = "Timepoint", fill = NULL) +
-      scale_y_continuous(breaks = pretty_breaks(n = 3)) +
-      custom_theme +
-      theme(
-        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
-        legend.position = "none",
-        strip.text.y = element_text(angle = 0),
-        panel.background = element_rect(color = "black"))
-
   }
 )
 response_barplot$barplot
 ```
-Figure 1C. C) Representative barplots from different clinical response groups showing the proportion of the most abundant 100 clones from each patient measured by SonicAbundance. T cells at day 0 indicate the analysis of the pre-infusion product, while other samples were collected post-infusion from peripherial blood (PBL). Each color indicates a different clone within a single patient while the height of the color indicating the relative abundance of the clone within that sample. No clones were shared across patients. Light grey indicates the remaining clones binned as low abundance and their proportion of the population. 
+Figure 1. (C) Examples of longitudinal analysis of integration site distributions for CR, PRtd, PR and NR subjects. “Day 0” indicates the pre-infusion T-cell product. Later samples from patients were from peripherial blood (PBL). Each color indicates a different clone; the height of the bar indicates the relative abundance. No clones were shared between patients. Light grey indicates low abundance clones. The abundant clone in the CR subject (red) is in the gene ZNF573.
 
 \newpage
-## Figure 2. Clonal expansionin CART19-modified cells assessed by tracking sites of integrated vectors.
+## Figure 2. Clonal expansion of CART19 cells assessed by tracking sites of integrated vectors.
 ```{r clonal_skewing_across_patients}
 intsite_clone_skew_plots <- within(
   list(), {
+
     # Generate plots of site abundance distributions
     cutoff <- 1 # percent
     
@@ -971,51 +1005,6 @@ intsite_clone_skew_plots <- within(
       dplyr::ungroup() %$% 
       min(estAbund)
     
-    high_sites <- timepoint_sites[
-      timepoint_sites$abund_status == "High Abundance"]
-    low_sites <- timepoint_sites[
-      timepoint_sites$abund_status == "Low Abundance"]
-    
-    tp_df <- as.data.frame(timepoint_sites, row.names = NULL)
-    tp_df <- tp_df[order(tp_df$estAbund, decreasing = TRUE),] %>% 
-      dplyr::filter(!duplicated(posid)) 
-    tp_high_and_low_abund_plot <- ggplot(
-        tp_df, aes(x = 1:nrow(tp_df), y = estAbund)) +
-      geom_point(aes(color = factor(abund_status))) +
-      geom_text_repel(
-        data = tp_df[1:10,], 
-        aes(x = 1:10, y = estAbund, label = gene_id_wo_annot),
-        segment.alpha = 0.5, nudge_x = 10000, size = 2.5, max.iter = 5000) +
-      scale_x_continuous(breaks = seq(0, 45000, 15000), labels = comma) +
-      scale_y_continuous(
-        breaks = c(1, 10, 100, 1000), labels = c("1", "10", "100", "1,000"), 
-        trans = "log10", limits = c(1, 1000)) +
-      scale_color_brewer(type = "qual", palette = "Set1") +
-      labs(
-        title = "X. Patient Specimens",
-        x = "Ordered integration sites",
-        y = "Sonic abundance",
-        color = "") +
-      theme_bw() +
-      theme(
-        legend.position = "none",
-        panel.border = element_blank(), 
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(), 
-        axis.line.x = element_line(color = "black"),
-        axis.line.y = element_line(color = "black"),
-        title = element_text(color = "black", size = 9, face = "bold"),
-        axis.text.x = element_text(size = 7),
-        axis.title = element_text(size = 8, color = "black", face = "bold")) +
-      annotate("text", x = 30000, y = 11, size = 3,
-               label = paste0(
-                 "Highly Abundant\nUnique Sites: ", 
-                 length(unique(high_sites$posid)))) +
-      annotate("text", x = 30000, y = 3, size = 3,
-               label = paste0(
-                 "Low Abundant\nUnique Sites: ", 
-                 format(length(unique(low_sites$posid)), big.mark = ",")))
-
     ## Now for TDN specimens
     tdn_sites$abund_status <- ifelse(
       tdn_sites$estAbund >= abund_cutoff, "High Abundance", "Low Abundance")
@@ -1024,11 +1013,27 @@ intsite_clone_skew_plots <- within(
     tdn_low_sites <- tdn_sites[tdn_sites$abund_status == "Low Abundance"]
 
     tdn_df <- as.data.frame(tdn_sites, row.names = NULL)
+    
     tdn_df <- tdn_df[order(tdn_df$estAbund, decreasing = TRUE),] %>% 
       dplyr::filter(!duplicated(posid))
-    tdn_high_and_low_abund_plot <- ggplot(
-        tdn_df, aes(x = 1:nrow(tdn_df), y = estAbund)) +
-      geom_point(aes(color = factor(abund_status))) +
+    
+    compressed_tdn_df <- tdn_df %>%
+      dplyr::mutate(rank_ord = seq_len(n())) %>%
+      dplyr::group_by(abund_status, estAbund) %>%
+      dplyr::summarise(start = min(rank_ord), end = max(rank_ord)) %>%
+      dplyr::ungroup() %>%
+      dplyr::arrange(start)
+    
+    tdn_high_and_low_abund_plot <- ggplot() +
+      geom_segment(
+        data = compressed_tdn_df,
+        aes(
+          x = start, xend = end, 
+          y = estAbund, yend = estAbund, 
+          color = factor(abund_status)
+        ),
+        size = 2.5, lineend = "round"
+      ) +
       scale_x_continuous(labels = comma) +
       scale_y_continuous(
         breaks = c(1, 10, 100, 1000), labels = c("1", "10", "100", "1,000"), 
@@ -1038,7 +1043,8 @@ intsite_clone_skew_plots <- within(
         title = "A. TDN Products",
         x = "Ordered integration sites",
         y = "Sonic abundance",
-        color = "") +
+        color = ""
+      ) +
       theme_bw() +
       theme(
         legend.position = "none",
@@ -1049,7 +1055,8 @@ intsite_clone_skew_plots <- within(
         axis.line.y = element_line(color = "black"),
         title = element_text(color = "black", size = 8, face = "plain"),
         axis.text.x = element_text(size = 7),
-        axis.title = element_text(size = 8, color = "black", face = "plain"))
+        axis.title = element_text(size = 8, color = "black", face = "plain")
+      )
 
     ## Day 28 only
     d28_sites <- timepoint_sites[timepoint_sites$timepoint == "d28"]
@@ -1068,26 +1075,50 @@ intsite_clone_skew_plots <- within(
     d28_CR_PRtd <- d28_df %>%
       dplyr::filter(determinant_response == "CR_PRtd")
     
+    compressed_d28_CR_PRtd <- d28_CR_PRtd %>%
+      dplyr::mutate(rank_ord = seq_len(n())) %>%
+      dplyr::group_by(abund_status, estAbund) %>%
+      dplyr::summarise(start = min(rank_ord), end = max(rank_ord)) %>%
+      dplyr::ungroup() %>%
+      dplyr::arrange(start)
+    
     d28_PR_NR <- d28_df %>%
       dplyr::filter(determinant_response == "PR_NR")
     
-    d28_CR_PRtd_abund_plot <- ggplot(
-        d28_CR_PRtd, aes(x = seq_len(nrow(d28_CR_PRtd)), y = estAbund)) +
-      geom_point(aes(color = factor(abund_status))) +
+    compressed_d28_PR_NR <- d28_PR_NR %>%
+      dplyr::mutate(rank_ord = seq_len(n())) %>%
+      dplyr::group_by(abund_status, estAbund) %>%
+      dplyr::summarise(start = min(rank_ord), end = max(rank_ord)) %>%
+      dplyr::ungroup() %>%
+      dplyr::arrange(start)
+    
+    d28_CR_PRtd_abund_plot <- ggplot() +
+      geom_segment(
+        data = compressed_d28_CR_PRtd,
+        aes(
+          x = start, xend = end, 
+          y = estAbund, yend = estAbund, 
+          color = factor(abund_status)
+        ),
+        size = 2.5, lineend = "round"
+      ) +
       geom_text_repel(
         data = d28_CR_PRtd[1:10,], 
         aes(x = 1:10, y = estAbund, label = gene_id_wo_annot),
-        segment.alpha = 0.5, size = 3, nudge_x = 2000) +
+        segment.alpha = 0.5, size = 3, nudge_x = 2000
+      ) +
       scale_x_continuous(labels = comma) +
       scale_y_continuous(
         breaks = c(1, 10, 100, 1000), labels = c("1", "10", "100", "1,000"), 
-        trans = "log10", limits = c(1, 1000)) +
+        trans = "log10", limits = c(1, 1000)
+      ) +
       scale_color_brewer(type = "qual", palette = "Set1") +
       labs(
         title = "B. CR/PRtd - Day 28",
         x = "Ordered integration sites",
         y = " ",
-        color = "") +
+        color = ""
+      ) +
       theme_bw() +
       theme(
         legend.position = "none",
@@ -1098,22 +1129,32 @@ intsite_clone_skew_plots <- within(
         axis.line.y = element_line(color = "black"),
         title = element_text(color = "black", size = 8, face = "plain"),
         axis.text.x = element_text(size = 7),
-        axis.title = element_text(size = 8, color = "black", face = "plain"))
+        axis.title = element_text(size = 8, color = "black", face = "plain")
+      )
 
 
-    d28_PR_NR_abund_plot <- ggplot(
-        d28_PR_NR, aes(x = seq_len(nrow(d28_PR_NR)), y = estAbund)) +
-      geom_point(aes(color = factor(abund_status))) +
+    d28_PR_NR_abund_plot <- ggplot() +
+      geom_segment(
+        data = compressed_d28_PR_NR,
+        aes(
+          x = start, xend = end, 
+          y = estAbund, yend = estAbund, 
+          color = factor(abund_status)
+        ),
+        size = 2.5, lineend = "round"
+      ) +
       scale_x_continuous(labels = comma) +
       scale_y_continuous(
         breaks = c(1, 10, 100, 1000), labels = c("1", "10", "100", "1,000"), 
-        trans = "log10", limits = c(1, 1000)) +
+        trans = "log10", limits = c(1, 1000)
+      ) +
       scale_color_brewer(type = "qual", palette = "Set1") +
       labs(
         title = "C. PR/NR - Day 28",
         x = "Ordered integration sites",
         y = " ",
-        color = "") +
+        color = ""
+      ) +
       theme_bw() +
       theme(
         legend.position = "none",
@@ -1124,7 +1165,8 @@ intsite_clone_skew_plots <- within(
         axis.line.y = element_line(color = "black"),
         title = element_text(color = "black", size = 8, face = "plain"),
         axis.text.x = element_text(size = 7),
-        axis.title = element_text(size = 8, color = "black", face = "plain"))
+        axis.title = element_text(size = 8, color = "black", face = "plain")
+      )
 
         
     ## Responders to non-responders
@@ -1191,6 +1233,144 @@ intsite_clone_skew_plots <- within(
 )
 ``` 
 
+```{r longitudinal_clone_plots}
+#Written to file: /path/to/CART19_intsite_manuscript_analysis/reports/manuscript_figures/
+
+long_clone_plots <- within(
+  list(), {
+    # Summarise each clones behavior
+    clone_data <- as.data.frame(cond_uniq_sites, row.names = NULL) %>%
+      dplyr::filter(patient %in% std_clin_patients) %>%
+      dplyr::select(
+        patient, timepoint, celltype, specimen, 
+        estAbund, relAbund, posid, gene_id
+      ) %>%
+      dplyr::mutate(dtime = convert_time(as.character(timepoint))) %>%
+      dplyr::group_by(patient, posid, gene_id) %>%
+      dplyr::summarise(
+        tfs = paste(sort(unique(as.integer(timepoint))), collapse = ","),
+        min_tf = min(as.integer(timepoint)), 
+        max_tf = max(as.integer(timepoint)),
+        tps = paste(sort(unique(dtime)), collapse = ","),
+        min_tp = min(dtime), max_tp = max(dtime),
+        num_tp = n_distinct(timepoint),
+        num_ct = n_distinct(celltype), num_sp = n_distinct(specimen),
+        min_ab = min(estAbund), max_ab = max(estAbund),
+        min_rb = min(relAbund), max_rb = max(relAbund)
+      ) %>%
+      dplyr::arrange(desc(num_tp), desc(max_ab), desc(min_ab)) %>%
+      dplyr::ungroup()
+    
+    # Isolate data for plot
+    plot_clones <- clone_data %>%
+      dplyr::group_by(patient) %>%
+      dplyr::arrange(desc(max_tp - min_tp), desc(max_rb)) %>%
+      dplyr::slice(1:10) %$%
+      unique(paste0(patient, ":", posid))
+
+    plot_data <- as.data.frame(cond_uniq_sites, row.names = NULL) %>%
+      dplyr::select(patient, timepoint, posid, gene_id, estAbund, relAbund) %>%
+      dplyr::filter(paste0(patient, ":", posid) %in% plot_clones) %>%
+      dplyr::mutate(
+        tp = convert_time(as.character(timepoint)),
+        tp = ifelse(tp == 0, 7.5, tp),
+        tp = ifelse(tp == 1, 8.5, tp),
+        pf = as.integer(
+          factor(paste0(patient, ":", posid), levels = rev(plot_clones)))
+      ) %>%
+      dplyr::group_by(patient, timepoint, tp, pf, posid, gene_id) %>%
+      dplyr::summarise(
+        logAbund = log(mean(estAbund), base = 10),
+        estAbund = mean(estAbund),
+        relAbund = mean(relAbund)
+      ) %>%
+      dplyr::group_by(patient, posid, gene_id) %>%
+      dplyr::mutate(num_tp = n_distinct(tp)) %>%
+      dplyr::ungroup() %>%
+      dplyr::group_by(num_tp) %>%
+      dplyr::mutate(pf = as.integer(factor(pf, levels = sort(unique(pf))))) %>%
+      dplyr::ungroup()
+
+    # Formated for 7"w by 3"h
+    split_plot_data <- split(plot_data, plot_data$patient)
+     
+    long_plots <- lapply(split_plot_data, function(df){
+      
+      df <- df %>%
+        dplyr::arrange(desc(estAbund)) %>%
+        dplyr::mutate(
+          patient = paste0("Patient: ", patient),
+          plot_id = paste0(gene_id, "\n", posid),
+          plot_id = factor(plot_id, levels = unique(plot_id))
+        )
+      
+      axis_breaks <- c(
+        7.5, 10, 14, 28, 60, 90, 120, 240, 365, 730, 1095, 1826
+      )
+      
+      axis_labels <- c(
+        "TDN", "d10", "d14", "d28", "m2", "m3", "m4", "m8", 
+        "y1", "y2", "y3", "y5"
+      )
+      
+      max_tp <- max(df$tp)
+      max_idx <- min(which(axis_breaks > max_tp))
+      max_idx <- max(c(max_idx, 5))
+      
+      axis_breaks <- axis_breaks[seq_len(max_idx)]
+      axis_labels <- axis_labels[seq_len(max_idx)]
+      
+      ggplot(df, aes(x = tp, y = relAbund)) +
+        geom_line(aes(group = plot_id), alpha = 0.15) +
+        geom_point(aes(color = plot_id), size = 2.5) +
+        facet_grid(. ~ patient) +
+        scale_color_brewer(type = "seq", palette = "Paired") +
+        scale_x_log10(
+          breaks = axis_breaks,
+          labels = axis_labels,
+          limits = c(7.5, max(df$tp))
+        ) + 
+        labs(
+          x = "Treatment Time", 
+          y = "Relative Abundance", 
+          color = NULL
+        ) +
+        guides(
+          color = guide_legend(
+            direction = "vertical",
+            keyheight = unit(0.27, units = "in"))
+        ) +
+        custom_theme +
+        theme(
+          legend.position = "right",
+          legend.text = element_text(size = 7.5),
+          axis.line.y = element_line(color = "black"),
+          axis.line.x = element_line(color = "black"),
+          axis.text.x = element_text(size = 9),
+          strip.text.y = element_text(angle = 0)
+        )
+      
+    })
+    
+    # null <- lapply(seq_along(long_plots), function(i){
+    #   
+    #   file_pdf <- paste0("supfig.", names(long_plots)[i], ".long_plot.pdf")
+    #   
+    #   ggsave(
+    #     filename = file_pdf, 
+    #     plot = long_plots[[i]], 
+    #     device = "pdf", 
+    #     path = file.path(workingDir, "reports/manuscript_figures"), 
+    #     width = 7, 
+    #     height = 3, 
+    #     units = "in"
+    #   )
+    #   
+    # })
+    
+})
+```
+
 ```{r fig2ABC, fig.width=7, fig.height=3}
 grid.arrange(
   grobs = list(
@@ -1199,12 +1379,12 @@ grid.arrange(
     intsite_clone_skew_plots$d28_PR_NR_abund_plot), 
   nrow = 1)
 ```
-Figure 2ABC. A-C) Rank-ordered plots display the abundance of each identified clone from their respective groups – transduction (TDN) products, CR/PRtd – Day 28, and PR/NR – Day 28. Highly abundant clones were determined by identifying a cutoff abundance value for the top 1% of all expanded clones within patients, cutoff = 9 cells. Clones at or above this cutoff are colored red, and the top 10 most abundant clones are labeled with their proximal gene symbol.
+Figure 2. Clonal behavior of CART19 cells assessed by tracking sites of integrated vectors. A-C) Rank-abundance plots summarizing clonal abundance for the (transduction–TDN) products (A); CR/PRtd assayed at Day 28 (B); and PR/NR assayed at Day 28 (C). Cell clones (identified by identical integration sites) were ordered by most abundant (left) to least abundant (right) as assessed by SonicAbundance. Highly abundant clones (red) were scored as the top 1% of all expanded clones, corresponding to at least 9 cells representing each clone. The top 10 most abundant clones for CR/PRtd at day 28 are labeled with gene symbols. A Venn diagram showing overlap among the top 30 most expanded clones in A-C is in Fig. S2. 
 
-```{r fig2D, fig.width=5, fig.height=4}
+```{r fig2D, fig.width=3.5, fig.height=5}
 gene_freq_bivar <- within(
   list(), {
-    
+
     freq_bivar <- dplyr::filter(
         gene_impact, 
         TP_num_patients >= 2,
@@ -1232,7 +1412,67 @@ gene_freq_bivar <- within(
       dplyr::arrange(adj_freq_test) %>%
       head(n = 10)
 
-    plot <- ggplot() +
+    vdata <- freq_bivar %>%
+      dplyr::mutate(
+        grp = ifelse(
+          pct_chg <= -10, "low", ifelse(pct_chg >= 10, "high", "mid")
+        ),
+        adj_chg = ifelse(
+          grp == "low", 
+          -log(abs(pct_chg), base = 10),
+          ifelse(grp == "high", log(pct_chg, base = 10), 0)
+        ),
+        adj_freq_scale = log(1 / freq_fisher_test)
+      ) %>%
+      dplyr::filter(
+        grp != "mid",
+        freq_fisher_test < 1
+      ) %>%
+      dplyr::mutate(grp = factor(grp, levels = c("low", "mid", "high")))
+    
+    vol_plot <- ggplot() +
+      geom_point(
+        data = vdata, 
+        aes(x = adj_chg, y = adj_freq_scale), 
+        shape = 21, color = "black", fill = "white"
+      ) +
+      geom_hline(
+        yintercept = log(1/0.05, base = 10), 
+        linetype = "dotted", color = "black"
+      ) +
+      geom_text_repel(
+        data = dplyr::filter(vdata, loci %in% key_enrich_freq_genes$loci),
+        aes(x = adj_chg, y = adj_freq_scale, label = gene_name),
+        nudge_x = -0.1, nudge_y = 2, segment.alpha = 0.25,
+        box.padding = unit(0.3, "lines"), size = 3
+      ) +
+      geom_text_repel(
+        data = dplyr::filter(vdata, loci %in% key_deplet_freq_genes$loci),
+        aes(x = adj_chg, y = adj_freq_scale, label = gene_name),
+        nudge_x = 0.1, nudge_y = 1, segment.alpha = 0.25,
+        box.padding = unit(0.3, "lines"), size = 3
+      ) +
+      facet_grid(. ~ grp, scales = "free") +
+      scale_color_continuous(high = "#132B43", low = "#56B1F7") +
+      scale_x_continuous(
+        breaks = c(-2, -log10(50), -1, 0, 1, log10(50), 2), 
+        labels = c("-100", "-50", "-10", "0", "10", "50", "100")
+      ) +
+      labs(
+        x = "Change in Integration Freq. (%)", 
+        y = "Enrichment (Log inverse p-value)"
+      ) +
+      custom_theme + 
+      theme(
+        axis.line = element_line(color = "black"),
+        strip.background = element_blank(),
+        strip.text = element_blank(),
+        legend.position = "none"
+      )
+
+      
+    
+    bivar_plot <- ggplot() +
       geom_abline(slope = 1, intercept = 0) +
       geom_point(
         data = freq_bivar, 
@@ -1275,388 +1515,22 @@ gene_freq_bivar <- within(
         legend.position = "right", 
         legend.box = "vertical",
         legend.direction = "vertical",
-        axis.line = element_line(color = "black"))
+        axis.line = element_line(color = "black")
+      )
     
 })
 
-gene_freq_bivar$plot
+gene_freq_bivar$vol_plot
 ```
-Figure 2D. D) Bivariate plot comparing the integration frequency within transcription units of transduction products (x-axis) versus all patient samples. Color indicates the significance of enrichment or depletion of integration within the transcription unit. The top 10 gene symbols representing the transcription units are labeled. 
+Figure 2. (D) Volcano plot showing genes where integration frequency was enriched or depleted during growth in patients. The total number of integration sites in each transcription unit was quantified for the pre-infusion and post-transplant samples, and normalized within each group. The two values were subtracted to obtain a normalized percent change (x-axis). Fisher’s exact test (corrected for multiple comparisons using the Benjamini-Hochberg method) was used to assess enrichment or depletion (y-axis). The x-axis shows the percent change in frequency, the y-axis shows inverse Log of the p-value.
 
-```{r fig2E, fig.width=3, fig.height=3.5}
-tet2_resp <- within(
-  list(), {
-    freq_rank <- dplyr::filter(
-        gene_impact, 
-        TP_num_patients >= 2,
-        TP_num_sites >= 10,
-        freq_diff > 0) %>%
-      dplyr::arrange(desc(pct_chg)) %>%
-      dplyr::mutate(id = seq_len(n())) %>%
-      dplyr::group_by(id) %>%
-      dplyr::mutate(fisher_test = {
-        test <- fisher.test(
-          matrix(
-            c(TP_num_sites, total_pat_sites - TP_num_sites,
-              TDN_num_sites, total_tdn_sites - TDN_num_sites), 
-            ncol = 2))
-        paste(
-          c(test$p.value, test$estimate, as.numeric(test$conf.int)), 
-          collapse = ":") }) %>%
-      dplyr::ungroup() %>%
-      tidyr::separate(
-        col = fisher_test, 
-        into = c("freq_fisher_pval", "freq_odds_ratio", 
-                 "freq_conf_low", "freq_conf_high"), 
-        sep = fixed(":"), remove = TRUE, convert = TRUE) %>%
-      dplyr::mutate(adj_freq_test = p.adjust(freq_fisher_pval, method = "BH")) %>%
-      dplyr::arrange(freq_fisher_pval) %>%
-      dplyr::mutate(id = seq_len(n()))
-    
-    freq_rank_wo_TET2_clone <- dplyr::filter(
-        gene_impact, 
-        TP_num_patients >= 2,
-        TP_num_sites >= 10,
-        freq_diff > 0) %>%
-      dplyr::arrange(desc(pct_chg)) %>%
-      dplyr::mutate(
-        TP_num_sites = ifelse(
-          gene_name == "TET2", TP_num_sites - 1, TP_num_sites),
-        id = seq_len(n())) %>%
-      dplyr::group_by(id) %>%
-      dplyr::mutate(fisher_test = {
-        test <- fisher.test(
-          matrix(
-            c(TP_num_sites, total_pat_sites - TP_num_sites,
-              TDN_num_sites, total_tdn_sites - TDN_num_sites), 
-            ncol = 2))
-        paste(
-          c(test$p.value, test$estimate, as.numeric(test$conf.int)), 
-          collapse = ":") }) %>%
-      dplyr::ungroup() %>%
-      tidyr::separate(
-        col = fisher_test, 
-        into = c("freq_fisher_pval", "freq_odds_ratio", 
-                 "freq_conf_low", "freq_conf_high"), 
-        sep = fixed(":"), remove = TRUE, convert = TRUE) %>%
-      dplyr::mutate(adj_freq_test = p.adjust(freq_fisher_pval, method = "BH")) %>%
-      dplyr::arrange(freq_fisher_pval) %>%
-      dplyr::mutate(id = seq_len(n()))
-
-    TET2_labels <- bind_rows(
-        dplyr::filter(freq_rank, gene_name == "TET2"),
-        dplyr::filter(freq_rank_wo_TET2_clone, gene_name == "TET2") %>%
-          dplyr::mutate(gene_name = "TET2*"))
-    # 4.5"x4.5"
-    rank_order_plot <- freq_rank %>%
-      dplyr::filter(freq_fisher_pval <= 0.05) %>%
-      ggplot(aes(x = id, y = freq_odds_ratio)) +
-      geom_point(
-        aes(fill = freq_fisher_pval, size = TP_num_sites),
-        color = "white", shape = 21) +
-      geom_point(
-        data = TET2_labels, 
-        aes(fill = freq_fisher_pval, size = TP_num_sites), 
-        color = "red", shape = 21) +
-      geom_text_repel(
-        data = TET2_labels,
-        aes(label = gene_name), 
-        nudge_x = 5, nudge_y = 1.0, segment.alpha = 0.5, 
-        arrow = arrow(length = unit(0.05, "inches"))) +
-      scale_fill_continuous(low = "#56B1F7", high = "#132B43") +
-      guides(
-        size = guide_legend(
-          override.aes = list(color = "white", fill = "black"))) +
-      labs(
-        x = "Rank Order", 
-        y = "Odds Ratio", 
-        fill = "P-value", 
-        size = "Identified\nClones") +
-      custom_theme +
-      theme(
-        axis.line = element_line(color = "black"),
-        legend.position = "right",
-        legend.direction = "vertical", legend.box = "vertical")
-    
-    # 3"x3.5"
-    tet2_resp_plot <- TET2_labels %>%
-      dplyr::mutate(gene_name = ifelse(
-        gene_name == "TET2", 
-        "TET2\nwith\npatient 10", "TET2\nwithout\npatient 10")) %>%
-      ggplot(aes(x = gene_name, y = freq_odds_ratio)) +
-      geom_bar(stat = "identity", fill = "grey75", color = "black") +
-      geom_point() +
-      geom_linerange(aes(ymin = freq_conf_low, ymax = freq_conf_high)) +
-      geom_hline(yintercept = 1.0, linetype = "dotted") +
-      geom_hline(yintercept = 0.0) +
-      labs(x = NULL, y = "Odds Ratio") +
-      custom_theme +
-      theme(
-        axis.line.y = element_line(color = "black", size = 0.5),
-        axis.line.x = element_blank(), 
-        axis.ticks.x = element_blank())
-  }
-)
-
-tet2_resp$tet2_resp_plot
+```{r fig2E, fig.width=7, fig.height=3}
+long_clone_plots$long_plots$`p03712-06`
 ```
-Figure 2E. TET2 frequency differential
+Figure 2. (E) Example of a longitudinal expanded clone, from patient p03712-06. The x-axis shows the time points sampled, the y-axis shows the % relative abundance of each clone determined by SonicAbundance. The nearest gene, and the chromosomal location of each integration site (mapped on hg38) are indicated for the 10 most abundant clones. * indicates integrated within the indicated transcription unit.
 
 \newpage
-## Figure 3. Pathways marked by vector integration.
-```{r fig3AB, fig.width=9, fig.height=6, eval=TRUE}
-go_kegg_heatmaps <- within(
-  list(), {
-
-    # Filter down terms (GO and KEGG) that will be relavent to the analysis
-    num_terms <- 20
-    select_GOBP_list <- all_GOBP_list[
-      lengths(all_GOBP_list) >= 10 & lengths(all_GOBP_list) <= 1000]
-    select_go_terms <- data.frame(
-        id = names(select_GOBP_list), 
-        size = lengths(select_GOBP_list)) %>%
-      dplyr::group_by(id) %>%
-      dplyr::mutate(term = Term(GOTERM[[id]])) %>%
-      dplyr::ungroup() %>%
-      dplyr::filter(
-        !grepl("placenta", term),
-        !grepl("^negative", term),
-        !grepl("^positive", term),
-        !grepl("embryo", term),
-        !grepl("estrous", term),
-        !grepl("eating", term),
-        !grepl("reproductive", term),
-        !grepl("radiation", term),
-        !grepl("development", term),
-        !grepl("to heat", term),
-        !grepl("response", term), 
-        !grepl("organization", term),
-        !grepl("assembly", term),
-        !grepl("migration", term))
-    
-    select_GOBP_list <- select_GOBP_list[select_go_terms$id]
-    
-    
-    rel_kegg_terms <- k_path %>%
-      tolower() %>%
-      grep("virus", x = ., invert = TRUE, value = TRUE) %>%
-      grep("viral", x = ., invert = TRUE, value = TRUE) %>%
-      grep("addiction", x = ., invert = TRUE, value = TRUE) %>%
-      grep("metabol", x = ., invert = TRUE, value = TRUE) %>%
-      grep("myopathy", x = ., invert = TRUE, value = TRUE) %>%
-      grep("multiple species", x = ., invert = TRUE, value = TRUE)
-   
-    rel_kegg_terms <- rel_kegg_terms[
-      grepl("signaling", rel_kegg_terms) | 
-        grepl("differentiation", rel_kegg_terms) |
-        grepl("proteolysis", rel_kegg_terms) |
-        grepl("ptosis", rel_kegg_terms) |
-        grepl("micrornas", rel_kegg_terms) |
-        grepl("some", rel_kegg_terms) |
-        grepl("cycle", rel_kegg_terms)]
-    
-    rel_kegg_terms <- names(rel_kegg_terms)
-
-    # Import GOI report data and environment
-    goi_analysis <- read.csv(
-        file.path(
-          outputDir, 
-          grep("_cart19_goi_data.csv", list.files(outputDir), value = TRUE)
-        )
-      ) %>%
-      dplyr::mutate(Gene_Name = gsub("'", "", Gene_Name)) 
-
-    # GOI potential genes and analysis ----   
-    potential_genes <- apply(
-      as.matrix(goi_analysis[
-        ,c("Depletion", "Enrichment", "Abundance", "Longitudinal", "Cluster")]), 
-      2, function(x){
-             goi_analysis$Gene_Name[x]
-           })
-    
-    composite_genes <- unique(unlist(
-      potential_genes[c("Enrichment", "Abundance", "Longitudinal", "Cluster")]
-    ))
-
-    criteria_order <- c(
-      "Depletion", "Enrichment", "Abundance", "Longitudinal", "Cluster"
-    )
-    
-    composite_go <- fisher_hyper_GO_test(
-      gene_list = composite_genes, GO_list = select_GOBP_list, odds = FALSE, 
-      p_adjust = "BH", lower_tail = FALSE, filter = TRUE, cores = numCores)
-    
-    select_GOBP_list <- select_GOBP_list[composite_go$GO_ID]
-    
-    composite_kegg <- fisher_hyper_KEGG_test(
-      gene_list = composite_genes, KEGG_list = k_pathList[rel_kegg_terms], 
-      odds = FALSE, p_adjust = "BH", lower_tail = FALSE, filter = FALSE, 
-      cores = numCores)
-
-    go_term <- lapply(potential_genes, function(x){
-      fisher_hyper_GO_test(
-        x, select_GOBP_list, odds = FALSE, 
-        p_adjust = 'BH', lower_tail = FALSE, cutoff = 1) 
-      })
-    
-    kegg_term <- lapply(potential_genes, function(x){
-      fisher_hyper_KEGG_test(
-        x, k_pathList[rel_kegg_terms], odds = FALSE, 
-        p_adjust = 'BH', lower_tail = FALSE, cutoff = 1)
-    })
-
-    go_list_df <- bind_rows(go_term, .id = "Criteria") %>%
-      dplyr::select(Criteria, GO_ID, GO_Term, overlap_size, adj.p.value)
-    
-    kegg_list_df <- bind_rows(kegg_term, .id = "Criteria") %>%
-      dplyr::select(Criteria, path_id, KEGG_Term, overlap_size, adj.p.value)
-
-    go_matrix <- sapply(potential_genes, function(x){
-     sapply(select_GOBP_list, function(y){ sum(x %in% y) / length(y) }) })
-    
-    go_matrix <- go_matrix[composite_go$GO_ID,]
-        
-    kegg_matrix <- sapply(potential_genes, function(x){
-     sapply(k_pathList, function(y){ sum(x %in% y) / length(y) }) })
-    
-    kegg_matrix <- kegg_matrix[composite_kegg$path_id,]
-    
-    # top x terms
-    top_go_terms <- rownames(go_matrix)[seq_len(num_terms)]
-    top_kegg_terms <- rownames(kegg_matrix)[seq_len(num_terms)]
-    
-    top_go_df <- data.frame(
-        term = top_go_terms,
-        size = lengths(select_GOBP_list[top_go_terms]),
-        ovlp = sapply(select_GOBP_list[top_go_terms], function(x){
-          sum(composite_genes %in% x) }), 
-        adj.p.value = composite_go$adj.p.value[match(
-          top_go_terms, composite_go$GO_ID)],
-        clus = as.vector(cluster_by_list_similarity(
-          keys = top_go_terms, keyList = select_GOBP_list[top_go_terms]))) %>%
-      dplyr::arrange(clus, desc(ovlp), adj.p.value)
-    
-    top_kegg_df <- data.frame(
-        term = top_kegg_terms,
-        size = lengths(k_pathList[top_kegg_terms]),
-        ovlp = sapply(k_pathList[top_kegg_terms], function(x){
-          sum(composite_genes %in% x) }), 
-        adj.p.value = composite_kegg$adj.p.value[match(
-          top_kegg_terms, composite_kegg$path_id)],
-        clus = as.vector(cluster_by_list_similarity(
-          keys = top_kegg_terms, keyList = k_pathList[top_kegg_terms]))) %>%
-      dplyr::arrange(clus, desc(ovlp), adj.p.value)
-    
-    go_heatmap_data <- as.data.frame(go_matrix[top_go_df$term,]) %>%
-      dplyr::mutate(
-        GO_ID = row.names(.),
-        GO_Term = go_list_df$GO_Term[match(GO_ID, go_list_df$GO_ID)],
-        f_GO_term = stringr::str_extract(GO_Term, "[\\w\\s-,]{40}"),
-        f_GO_term = ifelse(is.na(f_GO_term), GO_Term, paste0(f_GO_term, "...")),
-        f_GO_term = factor(f_GO_term, levels = rev(unique(f_GO_term)))) %>%
-      tidyr::gather(
-        key = "Criteria", value = "Proportion", 
-        -GO_ID, -GO_Term, -f_GO_term) %>%
-      left_join(
-        dplyr::select(go_list_df, -GO_Term), 
-        by = c("GO_ID", "Criteria")) %>%
-      dplyr::mutate(
-        Proportion = ifelse(Proportion == 0, NA, Proportion),
-        Criteria = factor(Criteria, levels = criteria_order),
-        Sig = ifelse(
-          !is.na(adj.p.value), ifelse(adj.p.value <= 0.05, "*", " "), " ")) %>%
-      dplyr::mutate(section = ifelse(Criteria == "Depletion", 1, 2))
-    
-    kegg_heatmap_data <- as.data.frame(kegg_matrix[top_kegg_df$term,]) %>%
-      dplyr::mutate(
-        path_id = row.names(.),
-        KEGG_Term = kegg_list_df$KEGG_Term[
-          match(path_id, kegg_list_df$path_id)],
-        KEGG_Term = stringr::str_remove(
-          KEGG_Term, fixed(" - Homo sapiens (human)")),
-        f_KEGG_term = stringr::str_extract(KEGG_Term, "[\\w\\s-,]{40}"),
-        f_KEGG_term = ifelse(
-          is.na(f_KEGG_term), KEGG_Term, paste0(f_KEGG_term, "...")),
-        f_KEGG_term = factor(
-          f_KEGG_term, levels = rev(unique(f_KEGG_term)))) %>%
-      tidyr::gather(
-        key = "Criteria", value = "Proportion", 
-        -path_id, -KEGG_Term, -f_KEGG_term) %>%
-      left_join(
-        dplyr::select(kegg_list_df, -KEGG_Term), 
-        by = c("path_id", "Criteria")) %>%
-      dplyr::mutate(
-        Proportion = ifelse(Proportion == 0, NA, Proportion),
-        Criteria = factor(Criteria, levels = criteria_order),
-        Sig = ifelse(
-          !is.na(adj.p.value), ifelse(adj.p.value <= 0.05, "*", " "), " ")) %>%
-      dplyr::mutate(section = ifelse(Criteria == "Depletion", 1, 2))
-
-    go_heatmap <- go_heatmap_data %>%
-        ggplot(aes(x = Criteria, y = f_GO_term)) +
-        geom_tile(aes(fill = Proportion)) +
-        geom_text(aes(label = Sig)) +
-        facet_grid(. ~ section, scales = "free", space = "free") +  
-        scale_fill_distiller(
-          type = "seq", palette = "Blues", direction = 1, na.value = "white",
-          breaks = c(0, 0.05, 0.1)) +
-        scale_y_discrete(position = "right") +
-        scale_x_discrete(position = "top") + 
-        labs(y = NULL, fill = "Term Proportion") +
-        guides(fill = guide_colorbar(
-          title.position = "top", label.position = "bottom")) +
-        theme(
-          panel.background = element_blank(),
-          axis.text.x.top = element_text(angle = 90, vjust = 0.5, hjust = 0),
-          legend.position = "bottom",
-          axis.title = element_text(color = "black", face = "bold"),
-          legend.title = element_text(color = "black", face = "bold"),
-          axis.text = element_text(color = "black"),
-          strip.placement = "outside",
-          strip.background = element_blank(),
-          strip.text = element_blank(),
-          aspect.ratio = length(unique(go_heatmap_data$GO_ID)) /
-            nrow(dplyr::distinct(go_heatmap_data, Criteria)))
-    
-      kegg_heatmap <- kegg_heatmap_data %>%
-        ggplot(aes(x = Criteria, y = f_KEGG_term)) +
-        geom_tile(aes(fill = Proportion)) +
-        geom_text(aes(label = Sig)) +
-        facet_grid(. ~ section, scales = "free", space = "free") +  
-        scale_fill_distiller(
-          type = "seq", palette = "Greens", direction = 1, na.value = "white",
-          breaks = c(0, 0.05, 0.1)) +
-        scale_y_discrete(position = "right") +
-        scale_x_discrete(position = "top") + 
-        labs(y = NULL, fill = "Term Proportion") +
-        guides(fill = guide_colorbar(
-          title.position = "top", label.position = "bottom")) +
-        theme(
-          panel.background = element_blank(),
-          axis.text.x.top = element_text(angle = 90, vjust = 0.5, hjust = 0),
-          legend.position = "bottom",
-          axis.title = element_text(color = "black", face = "bold"),
-          legend.title = element_text(color = "black", face = "bold"),
-          axis.text = element_text(color = "black"),
-          strip.placement = "outside",
-          strip.background = element_blank(),
-          strip.text = element_blank(),
-          aspect.ratio = length(unique(kegg_heatmap_data$path_id)) /
-            nrow(dplyr::distinct(kegg_heatmap_data, Criteria)))
-      
-  }
-)
-
-grid.arrange(
-  grobs = list(
-    go_kegg_heatmaps$go_heatmap, 
-    go_kegg_heatmaps$kegg_heatmap), 
-  nrow = 1)
-```
-Figure 3AB. A and B) Heatmaps indicating the proportion of each gene ontology (GO, blue) term or KEGG pathway (green) term are represented by the darker shades. Astericks indicate significant enrichment for the term over random.
-
-\newpage
-## Figure 4. Genomic and Epigenetic features associated with vector integration. 
+## Figure 4. Genomic and epigenetic features associated with vector integration. 
 ```{r generate_heatmap_data, eval=FALSE}
 heatmap_data <- within(
   list(), {
@@ -1709,222 +1583,537 @@ heatmap_data <- within(
 })
 ```
 
-```{r fig4ABC, fig.width=9, fig.height=6}
+```{r fig4ABC, fig.width=6, fig.height=7.5}
 # system call: /home/opt/R-3.4.0/bin/Rscript ~/dev/scripts/genomicHeatmapMaker/genomic_heatmap_from_file.R manuscript_std_heatmap_samples.csv -f manuscript_std_heatmap_sites.csv -o manuscript_genomic_std_heatmap -r hg38 -c ~/INSPIIRED/INSPIIRED.yml
 
-gen_heatmap <- within(
+# system call: /home/opt/R-3.4.0/bin/Rscript ~/dev/scripts/EpigeneticHeatmapMaker/epi_heatmap_from_file.R manuscript_std_heatmap_samples.csv -f manuscript_std_heatmap_sites.csv -t ~/dev/scripts/EpigeneticHeatmapMaker/CD4_epi_types.txt -o manuscript_epi_std_heatmap -c ~/INSPIIRED/INSPIIRED.yml
+
+heatmap_data <- within(
   list(), {
+    
     heatmap_sample_info <- read.csv(
-      file.path(outputDir, "manuscript_std_heatmap_samples.csv"))
-    gen_heatmap <- readRDS(
-      file.path(outputDir, "manuscript_genomic_std_heatmap/roc.res.rds"))
+      file.path(outputDir, "manuscript_std_heatmap_samples.csv")
+    )
 
     heatmap_scale <- seq(0.2, 0.8, 0.1)
-    gen_heatmap_colors <- colorspace::diverge_hsv(
-      length(heatmap_scale), h = c(240, 0), v = 1, power = 1)
-
-    select_gen_features <- row.names(gen_heatmap$ROC)
-    select_gen_features <- c(
-      "boundary.dist", "start.dist", "general.width", "gene.width", 
-      "within_refSeq_gene", "refSeq_counts.10k", "refSeq_counts.100k", 
-      "refSeq_counts.1M", "GC.100", "GC.1k", "GC.10k", "GC.100k", "GC.1M", 
-      "CpG_counts.1k", "CpG_counts.10k", "CpG_density.10k", "CpG_density.100k", 
-      "CpG_density.1M", "DNaseI_count.1k", "DNaseI_count.10k", 
-      "DNaseI_count.100k", "DNaseI_count.1M")
     
-    preffered_gen_names <- c(
-      "boundary.dist" = "distance to boundary", 
-      "start.dist" = "distance to start", 
-      "general.width" = "intergenic width", 
-      "gene.width" = "gene width", 
-      "within_refSeq_gene" = "in gene, RefSeq", 
-      "refSeq_counts.10k" = "RefSeq 10kb", 
-      "refSeq_counts.100k" = "RefSeq 100kb", 
-      "refSeq_counts.1M" = "RefSeq 1Mb", 
-      "GC.100" = "gc.100bp", 
-      "GC.1k" = "gc.1kb", 
-      "GC.10k" = "gc.10kb", 
-      "GC.100k" = "gc.100kb", 
-      "GC.1M" = "gc.1Mb", 
-      "CpG_counts.1k" = "cpg.< 1kb", 
-      "CpG_counts.10k" = "cpg.< 10kb", 
-      "CpG_density.10k" = "cpg.Density 10kb", 
-      "CpG_density.100k" = "cpg.Density 100kb", 
-      "CpG_density.1M" = "cpg.Density 1Mb", 
-      "DNaseI_count.1k" = "dnase.< 1kb", 
-      "DNaseI_count.10k" = "dnase.< 10kb", 
-      "DNaseI_count.100k" = "dnase.< 100kb", 
-      "DNaseI_count.1M" = "dnase.< 1Mb")
-
-    gen_heatmap$ROC <- gen_heatmap$ROC[select_gen_features,]
-
+    heatmap_colors <- colorspace::diverge_hsv(
+      length(heatmap_scale), h = c(240, 0), v = 1, power = 1)
+    
     heatmap_sample_levels <- c(
-      "TDN - CR_PRtd", "TDN - PR_NR", "D28 - CR_PRtd", "D28 - PR_NR")
+      "TDN - CR_PRtd", "TDN - PR_NR", "D28 - CR_PRtd", "D28 - PR_NR"
+    )
+    
     heatmap_figure_labels <- gsub("_", "/", heatmap_sample_levels)
 
     stat_cuts <- c(0, 0.001, 0.01, 0.05, 1)
+
+    
+    # Genomic section ----
+    gen_heatmap <- readRDS(
+      file.path(outputDir, "manuscript_genomic_std_heatmap/roc.res.rds")
+    )
+
+    select_gen_features <- row.names(gen_heatmap$ROC)
+    
+    select_gen_features <- c(
+      "start.dist", "general.width", "within_refSeq_gene", "GC.10k", 
+      "CpG_density.10k", "DNaseI_count.10k"
+    )
+    
+    preferred_gen_names <- c(
+      "start.dist" = "Distance to Txn start",
+      "general.width" = "Intergenic width", 
+      "within_refSeq_gene" = "In Txn unit, RefSeq", 
+      "GC.10k" = "GC Content", 
+      "CpG_density.10k" = "CpG Density", 
+      "DNaseI_count.10k" = "DNaseI"
+    )
+
+    gen_heatmap$ROC <- gen_heatmap$ROC[select_gen_features,]
+
     gen_comp_tdn_stats <- structure(cut(
         gen_heatmap$pvalues$op[select_gen_features, 6], 
         stat_cuts, 
         labels = c("***", " **", " * ", "   "), 
-        include.lowest = TRUE),
-      names = select_gen_features)
+        include.lowest = TRUE
+      ),
+      names = select_gen_features
+    )
+    
     gen_comp_d28_stats <- structure(cut(
         gen_heatmap$pvalues$op[select_gen_features, 1], 
         stat_cuts, 
         labels = c("***", " **", " * ", "   "), 
         include.lowest = TRUE),
-      names = select_gen_features)
+      names = select_gen_features
+    )
+    
     gen_comp_stats <- structure(
       paste0(gen_comp_tdn_stats, "|", gen_comp_d28_stats),
-      names = names(gen_comp_tdn_stats))
+      names = names(gen_comp_tdn_stats)
+    )
+    
     gen_row_names <- paste0(
-      preffered_gen_names[names(gen_comp_stats)], " - ", gen_comp_stats)
+      preferred_gen_names[names(gen_comp_stats)], " - ", gen_comp_stats
+    )
 
-    plot_data <- gen_heatmap$ROC %>%
+    gen_plot_data <- gen_heatmap$ROC %>%
       reshape2::melt() %>% 
       dplyr::mutate(
-        feat = preffered_gen_names[Var1],
+        feat = preferred_gen_names[Var1],
         comp.sym = gen_comp_stats[Var1],
-        Var1 = paste0(preffered_gen_names[Var1], " - ", comp.sym),
+        Var1 = paste0(preferred_gen_names[Var1], " - ", comp.sym),
         Var1 = factor(Var1, levels = gen_row_names), 
-        Var2 = factor(Var2, levels = heatmap_sample_levels),
+        Var2 = as.character(Var2),
+        #Var2 = factor(Var2, levels = heatmap_sample_levels),
+        feat = factor(feat, levels = rev(preferred_gen_names)),
         grp = " ",
         sig = as.vector(gen_heatmap$pvalues$np[select_gen_features,]),
         sym = cut(
           sig, stat_cuts, labels = c("***", " **", " * ", "   "), 
-          include.lowest = TRUE))
-    levels(plot_data$Var2) <- heatmap_figure_labels
+          include.lowest = TRUE)
+      ) %>%
+      tidyr::separate(
+        col = Var2, into = c("timepoint", "response"), sep = " - "
+      ) %>%
+      dplyr::mutate(
+        response = gsub("_", "/", response),
+        response = factor(response, levels = c("Sig", "CR/PRtd", "PR/NR")),
+        timepoint = ifelse(timepoint == "TDN", "Infusion\nProduct", "Day\n28"),
+        timepoint = factor(
+          timepoint, levels = c("Infusion\nProduct", "Day\n28")
+        ),
+        sym = ""
+      )
 
-    gen_plot <- ggplot(plot_data, aes(x = Var2, y = Var1, fill = value)) + 
-      geom_tile(color = 'black') +
-      geom_text(aes(label = sym), color = "black", size = 2, nudge_y = -0.15) + 
-      scale_x_discrete(position = "top") +
-      scale_fill_gradient2(
-        breaks = c(0.2, 0.4, 0.6, 0.8), 
-        low = gen_heatmap_colors[1], 
-        mid = gen_heatmap_colors[round(length(heatmap_scale)/2)], 
-        high = gen_heatmap_colors[length(heatmap_scale)], 
-        midpoint = 0.5) +
-      guides(fill = guide_colorbar(
-        title.position = "left", title.hjust = 0.5, 
-        direction = "horizontal")) +
-      labs(x = NULL, y = NULL, fill = "ROC\nScore") +
-      custom_theme + 
-      theme(
-        legend.position = "bottom",
-        axis.text.x.top = element_text(
-          angle = 90, hjust = 0, vjust = 0.5, size = 8),
-        strip.placement = "outside",
-        axis.line = element_blank(),
-        axis.ticks.y = element_blank(),
-        aspect.ratio = nrow(gen_heatmap$ROC)/ncol(gen_heatmap$ROC))
-})
+    add_gen_data <- gen_plot_data %>%
+      dplyr::mutate(comp.sym = as.character(comp.sym)) %>%
+      tidyr::separate(
+        col = comp.sym, into = c("tdn", "d28"), sep = "\\|"
+      ) %>%
+      dplyr::select(Var1, timepoint, response, feat, tdn, d28) %>%
+      tidyr::gather(
+        key = "comp", value = "sym", -Var1, -timepoint, -response, -feat
+      ) %>%
+      dplyr::filter(
+        ifelse(timepoint == "Day\n28", comp == "d28", comp == "tdn")
+      ) %>%
+      dplyr::select(feat, timepoint, sym) %>%
+      dplyr::mutate(
+        value = 0.5,
+        response = factor("Sig", levels = c("Sig", "CR/PRtd", "PR/NR"))
+      )
+    
+    gen_plot_data <- gen_plot_data %>%
+      dplyr::select(feat, timepoint, response, value, sym) %>%
+      dplyr::bind_rows(add_gen_data)
+  
 
-# system call: /home/opt/R-3.4.0/bin/Rscript ~/dev/scripts/EpigeneticHeatmapMaker/epi_heatmap_from_file.R manuscript_std_heatmap_samples.csv -f manuscript_std_heatmap_sites.csv -t ~/dev/scripts/EpigeneticHeatmapMaker/CD4_epi_types.txt -o manuscript_epi_std_heatmap -c ~/INSPIIRED/INSPIIRED.yml
-
-epi_heatmap <- within(
-  list(), {
-    heatmap_sample_info <- read.csv(
-      file.path(outputDir, "manuscript_std_heatmap_samples.csv"))
-    epi_heatmap <- readRDS(
+    # Epigenetic section ----
+    epi_heatmap <- bps_heatmap <- readRDS(
       file.path(outputDir, "manuscript_epi_std_heatmap/roc.res.rds"))
 
-    heatmap_scale <- seq(0.2, 0.8, 0.1)
-    epi_heatmap_colors <- colorspace::diverge_hsv(
-      length(heatmap_scale), h = c(240,120), v = 1, power = 1)
-
     select_epi_features <- c(
-      "CTCF.10Kb", "H2AK5ac.10Kb", "H2AK9ac.10Kb", "H2AZ.10Kb", "H2BK5ac.10Kb", 
-      "H2BK5me1.10Kb", "H2BK12ac.10Kb", "H2BK20ac.10Kb", "H2BK120ac.10Kb",   
-      "H3K4ac.10Kb", "H3K4me1.10Kb", "H3K4me2.10Kb", "H3K4me3.10Kb",
-      "H3K9ac.10Kb", "H3K9me1.10Kb", "H3K9me2.10Kb", "H3K9me3.10Kb",
-      "H3K14ac.10Kb", "H3K18ac.10Kb", "H3K23ac.10Kb", "H3K27ac.10Kb", 
-      "H3K27me1.10Kb", "H3K27me2.10Kb", "H3K27me3.10Kb", "H3K36ac.10Kb", 
-      "H3K36me1.10Kb", "H3K36me3.10Kb", "H3K79me1.10Kb", "H3K79me2.10Kb", 
-      "H3K79me3.10Kb", "H3R2me1.10Kb", "H3R2me2.10Kb", "H4K5ac.10Kb", 
-      "H4K8ac.10Kb","H4K12ac.10Kb", "H4K16ac.10Kb", "H4K20me1.10Kb", 
-      "H4K20me3.10Kb", "H4K91ac.10Kb", "H4R3me2.10Kb", "NRSF.10Kb", 
-      "PolII.10Kb")
+      "H2AK9ac.10Kb", "H2BK5me1.10Kb", "H2BK12ac.10Kb", "H3K4me2.10Kb", 
+      "H3K4me3.10Kb", "H3K9me3.10Kb", "H3K14ac.10Kb", "H3K18ac.10Kb", 
+      "H3K27me2.10Kb", "H3K36me1.10Kb", "H3K36me3.10Kb", "H3K79me1.10Kb",
+      "H3K79me2.10Kb", "H3K79me3.10Kb", "H4K8ac.10Kb","H4K12ac.10Kb", 
+      "H4K16ac.10Kb", "H4K20me1.10Kb", "H4R3me2.10Kb"
+    )
+    
+    select_bound_proteins <- c(
+      "Brd2_promoters.10Kb", "Brd3_promoters.10Kb", "Brd4_promoters.10Kb", 
+      "CTCF.10Kb", "H2AZ.10Kb", "Rest_CD4_HDAC1.10Kb", "Rest_CD4_HDAC3.10Kb", 
+      "Rest_CD4_HDAC6.10Kb", "HP1a_promoters.10Kb", "RestingNucleosomes.10Kb", 
+      "NRSF.10Kb", "Rest_CD4_PCAF.10Kb","PolII.10Kb"
+    )
 
     epi_heatmap$ROC <- epi_heatmap$ROC[select_epi_features,]
+    bps_heatmap$ROC <- bps_heatmap$ROC[select_bound_proteins,]
 
-    preffered_epi_names <- structure(
+    preferred_epi_names <- structure(
       gsub(".10Kb", "", select_epi_features),
-      names = select_epi_features)
+      names = select_epi_features
+    )
     
-    heatmap_sample_levels <- c(
-      "TDN - CR_PRtd", "TDN - PR_NR", "D28 - CR_PRtd", "D28 - PR_NR")
-    heatmap_figure_labels <- gsub("_", "/", heatmap_sample_levels)
-
-    stat_cuts <- c(0, 0.001, 0.01, 0.05, 1)
+    preferred_bps_names <- c(
+      "Brd2_promoters.10Kb" = "Brd2 promoters", 
+      "Brd3_promoters.10Kb" = "Brd3 promoters", 
+      "Brd4_promoters.10Kb" = "Brd4 promoters", 
+      "CTCF.10Kb" = "CTCF", 
+      "H2AZ.10Kb" = "H2AZ", 
+      "Rest_CD4_HDAC1.10Kb" = "CD4+ HDAC1", 
+      "Rest_CD4_HDAC3.10Kb" = "CD4+ HDAC3", 
+      "Rest_CD4_HDAC6.10Kb" = "CD4+ HDAC6", 
+      #"Act_CD4_HDAC6.10Kb" = "Activated CD4+ HDAC6", 
+      "HP1a_promoters.10Kb" = "HP1a promoters", 
+      "RestingNucleosomes.10Kb" = "Nucleosomes", 
+      #"ActivatedNucleosomes.10Kb" = "Activated Nucleosomes", 
+      "NRSF.10Kb" = "NRSF/REST",
+      "Rest_CD4_PCAF.10Kb" = "CD4+ PCAF/KAT2B",
+      "PolII.10Kb" = "PolII"
+    )
+    
+    # Epigenetic data
     epi_comp_tdn_stats <- structure(cut(
         epi_heatmap$pvalues$op[select_epi_features, 6], 
         stat_cuts, 
         labels = c("***", " **", " * ", "   "), 
-        include.lowest = TRUE),
-      names = select_epi_features)
+        include.lowest = TRUE
+      ),
+      names = select_epi_features
+    )
+    
     epi_comp_d28_stats <- structure(cut(
         epi_heatmap$pvalues$op[select_epi_features, 1], 
         stat_cuts, 
         labels = c("***", " **", " * ", "   "), 
-        include.lowest = TRUE),
-      names = select_epi_features)
+        include.lowest = TRUE
+      ),
+      names = select_epi_features
+    )
+    
     epi_comp_stats <- structure(
       paste0(epi_comp_tdn_stats, "|", epi_comp_d28_stats),
-      names = names(epi_comp_tdn_stats))
+      names = names(epi_comp_tdn_stats)
+    )
+    
     epi_row_names <- paste0(
-      preffered_epi_names[names(epi_comp_tdn_stats)], " - ", epi_comp_stats)
+      preferred_epi_names[names(epi_comp_tdn_stats)], " - ", epi_comp_stats
+    )
 
-    plot_data <- epi_heatmap$ROC %>%
+    epi_plot_data <- epi_heatmap$ROC %>%
       reshape2::melt() %>% 
       dplyr::mutate(
-        feat = preffered_epi_names[Var1],
+        feat = preferred_epi_names[Var1],
         comp.sym = epi_comp_stats[Var1],
         grp = ifelse(as.integer(Var1) <= length(levels(Var1))/2, " ", "  "),    
-        Var1 = paste0(preffered_epi_names[Var1], " - ", comp.sym),
+        Var1 = paste0(preferred_epi_names[Var1], " - ", comp.sym),
         Var1 = factor(Var1, levels = rev(epi_row_names)), 
-        Var2 = factor(Var2, levels = heatmap_sample_levels),
+        Var2 = as.character(Var2),
+        #Var2 = factor(Var2, levels = heatmap_sample_levels),
+        feat = factor(feat, levels = rev(preferred_epi_names)),
+        grp = " ",
         sig = as.vector(epi_heatmap$pvalues$np[select_epi_features,]),
         sym = cut(
-          sig, 
-          stat_cuts, 
-          labels = c("***", " **", " * ", "   "), 
-          include.lowest = TRUE))
-    levels(plot_data$Var2) <- heatmap_figure_labels
+          sig, stat_cuts, labels = c("***", " **", " * ", "   "), 
+          include.lowest = TRUE)
+      ) %>%
+      tidyr::separate(
+        col = Var2, into = c("timepoint", "response"), sep = " - "
+      ) %>%
+      dplyr::mutate(
+        response = gsub("_", "/", response),
+        response = factor(response, levels = c("Sig", "CR/PRtd", "PR/NR")),
+        timepoint = ifelse(timepoint == "TDN", "Infusion\nProduct", "Day\n28"),
+        timepoint = factor(
+          timepoint, levels = c("Infusion\nProduct", "Day\n28")
+        ),
+        sym = ""
+      )
+        
+    add_epi_data <- epi_plot_data %>%
+      dplyr::mutate(comp.sym = as.character(comp.sym)) %>%
+      tidyr::separate(
+        col = comp.sym, into = c("tdn", "d28"), sep = "\\|"
+      ) %>%
+      dplyr::select(Var1, timepoint, response, feat, tdn, d28) %>%
+      tidyr::gather(
+        key = "comp", value = "sym", -Var1, -timepoint, -response, -feat
+      ) %>%
+      dplyr::filter(
+        ifelse(timepoint == "Day\n28", comp == "d28", comp == "tdn")
+      ) %>%
+      dplyr::select(feat, timepoint, sym) %>%
+      dplyr::mutate(
+        value = 0.5,
+        response = factor("Sig", levels = c("Sig", "CR/PRtd", "PR/NR"))
+      )
+    
+    epi_plot_data <- epi_plot_data %>%
+      dplyr::select(feat, timepoint, response, value, sym) %>%
+      dplyr::bind_rows(add_epi_data)
 
-    epi_plot <- ggplot(plot_data, aes(x = Var2, y = Var1, fill = value)) + 
-      geom_tile(color = 'black') +
-      geom_text(aes(label = sym), color = "black", size = 2, nudge_y = -0.15) + 
-      facet_wrap(~ grp, scales = "free") + 
+    
+    # Bound protein data ----
+    bps_comp_tdn_stats <- structure(cut(
+        bps_heatmap$pvalues$op[select_bound_proteins, 6], 
+        stat_cuts, 
+        labels = c("***", " **", " * ", "   "), 
+        include.lowest = TRUE
+      ),
+      names = select_bound_proteins
+    )
+    
+    bps_comp_d28_stats <- structure(cut(
+        bps_heatmap$pvalues$op[select_bound_proteins, 1], 
+        stat_cuts, 
+        labels = c("***", " **", " * ", "   "), 
+        include.lowest = TRUE
+      ),
+      names = select_bound_proteins
+    )
+    
+    bps_comp_stats <- structure(
+      paste0(bps_comp_tdn_stats, "|", bps_comp_d28_stats),
+      names = names(bps_comp_tdn_stats)
+    )
+    
+    bps_row_names <- paste0(
+      preferred_bps_names[names(bps_comp_tdn_stats)], " - ", bps_comp_stats
+    )
+
+    bps_plot_data <- bps_heatmap$ROC %>%
+      reshape2::melt() %>% 
+      dplyr::mutate(
+        feat = preferred_bps_names[Var1],
+        comp.sym = bps_comp_stats[Var1],
+        grp = ifelse(as.integer(Var1) <= length(levels(Var1))/2, " ", "  "),    
+        Var1 = paste0(preferred_bps_names[Var1], " - ", comp.sym),
+        Var1 = factor(Var1, levels = rev(bps_row_names)), 
+        Var2 = as.character(Var2),
+        #Var2 = factor(Var2, levels = heatmap_sample_levels),
+        feat = factor(feat, levels = rev(preferred_bps_names)),
+        grp = " ",
+        sig = as.vector(bps_heatmap$pvalues$np[select_bound_proteins,]),
+        sym = cut(
+          sig, stat_cuts, labels = c("***", " **", " * ", "   "), 
+          include.lowest = TRUE)
+      ) %>%
+      tidyr::separate(
+        col = Var2, into = c("timepoint", "response"), sep = " - "
+      ) %>%
+      dplyr::mutate(
+        response = gsub("_", "/", response),
+        response = factor(response, levels = c("Sig", "CR/PRtd", "PR/NR")),
+        timepoint = ifelse(timepoint == "TDN", "Infusion\nProduct", "Day\n28"),
+        timepoint = factor(
+          timepoint, levels = c("Infusion\nProduct", "Day\n28")
+        ),
+        sym = ""
+      )
+
+    add_bps_data <- bps_plot_data %>%
+      dplyr::mutate(comp.sym = as.character(comp.sym)) %>%
+      tidyr::separate(
+        col = comp.sym, into = c("tdn", "d28"), sep = "\\|"
+      ) %>%
+      dplyr::select(Var1, timepoint, response, feat, tdn, d28) %>%
+      tidyr::gather(
+        key = "comp", value = "sym", -Var1, -timepoint, -response, -feat
+      ) %>%
+      dplyr::filter(
+        ifelse(timepoint == "Day\n28", comp == "d28", comp == "tdn")
+      ) %>%
+      dplyr::select(feat, timepoint, sym) %>%
+      dplyr::mutate(
+        value = 0.5,
+        response = factor("Sig", levels = c("Sig", "CR/PRtd", "PR/NR"))
+      )
+    
+    bps_plot_data <- bps_plot_data %>%
+      dplyr::select(feat, timepoint, response, value, sym) %>%
+      dplyr::bind_rows(add_bps_data)
+    
+    
+    # Formating and generating the individual plots ----
+    composite_heatmap_data <- suppressWarnings(dplyr::bind_rows(
+        gen_plot_data, epi_plot_data, bps_plot_data
+      )) %>%
+      dplyr::mutate(
+        timepoint = factor(
+          timepoint, levels = c("Infusion\nProduct", "Day\n28")
+        ),
+        response = gsub("Sig", " ", as.character(response)),
+        response = factor(
+          response, levels = c(" ", "CR/PRtd", "PR/NR")
+        ),
+        value = as.numeric(value)
+      )
+    
+    genomic_heatmap_feats <- c(
+      "Distance to Txn start", "Intergenic width", "In Txn unit, RefSeq", 
+      "GC Content", "CpG Density", "DNaseI", "Brd2 promoters", 
+      "Brd3 promoters", "Brd4 promoters"
+    )
+    
+    epigenetic_heatmap_feats <- c(
+      "H2AK9ac", "H2BK5me1", "H2BK12ac", "H3K4me2", "H3K4me3", "H3K9me3", 
+      "H3K14ac", "H3K18ac", "H3K27me2", "H3K36me1", "H3K36me3", "H3K79me1", 
+      "H3K79me2", "H3K79me3", "H4K8ac", "H4K12ac", "H4K16ac", "H4K20me1", 
+      "H4R3me2"
+    )
+    
+    bound_protein_feats <- c(
+      "CTCF", "H2AZ", "CD4+ HDAC1", "CD4+ HDAC3", "CD4+ HDAC6", 
+      "HP1a promoters", "Nucleosomes", "NRSF/REST", "CD4+ PCAF/KAT2B", "PolII"
+    )
+    
+    gen_plot <- composite_heatmap_data %>%
+      dplyr::filter(feat %in% genomic_heatmap_feats) %>%
+      dplyr::mutate(feat = factor(
+        feat, levels = rev(genomic_heatmap_feats)
+      )) %>%
+      ggplot() + 
+      geom_tile(
+        aes(x = response, y = feat, fill = value), 
+        color = 'grey60'
+      ) +
+      geom_text(
+        aes(
+          x = response, y = feat, label = stringr::str_trim(sym)
+        ), 
+        color = "black", size = 3, 
+        fontface = "bold", family = "Courier"
+      ) + 
+      facet_grid(. ~ timepoint) +
       scale_x_discrete(position = "top") +
       scale_fill_gradient2(
         breaks = c(0.2, 0.4, 0.6, 0.8), 
-        low = epi_heatmap_colors[1], 
-        mid = epi_heatmap_colors[round(length(heatmap_scale)/2)], 
-        high = epi_heatmap_colors[length(heatmap_scale)], 
-        midpoint = 0.5) +
+        low = heatmap_colors[1], 
+        mid = heatmap_colors[round(length(heatmap_scale)/2)], 
+        high = heatmap_colors[length(heatmap_scale)], 
+        midpoint = 0.5
+      ) +
       guides(fill = guide_colorbar(
         title.position = "left", title.hjust = 0.5, 
-        direction = "horizontal")) +
-      labs(x = NULL, y = NULL, fill = "ROC\nScore") +
+        direction = "horizontal"
+      )) +
+      labs(
+        x = NULL, y = NULL, fill = "ROC\nScore",
+        title = "A. Genomic"
+      ) +
       custom_theme +
       theme(
-        legend.position = "bottom",
+        legend.position = "none",
+        plot.title = element_text(hjust = 1),
         axis.text.x.top = element_text(
           angle = 90, hjust = 0, vjust = 0.5, size = 8),
-        strip.background = element_rect(fill = "white", color = "white"),
+        strip.background = element_rect(fill = "white", color = "black"),
         strip.placement = "outside",
         axis.line = element_blank(),
         axis.ticks.y = element_blank(),
-        aspect.ratio = nrow(epi_heatmap$ROC)/(2*ncol(epi_heatmap$ROC)))
+        axis.ticks.x = element_blank(),
+        aspect.ratio = length(genomic_heatmap_feats) / 
+          (length(heatmap_sample_levels) - 1)
+      )
+
+    epi_plot <- composite_heatmap_data %>%
+      dplyr::filter(feat %in% epigenetic_heatmap_feats) %>%
+      dplyr::mutate(feat = factor(
+        feat, levels = rev(epigenetic_heatmap_feats)
+      )) %>%
+      ggplot() + 
+      geom_tile(
+        aes(x = response, y = feat, fill = value), 
+        color = 'grey60'
+      ) +
+      geom_text(
+        aes(
+          x = response, y = feat, label = stringr::str_trim(sym)
+        ), 
+        color = "black", size = 3, 
+        fontface = "bold", family = "Courier"
+      ) + 
+      facet_grid(. ~ timepoint) +
+      scale_x_discrete(position = "top") +
+      scale_fill_gradient2(
+        breaks = c(0.2, 0.4, 0.6, 0.8), 
+        low = heatmap_colors[1], 
+        mid = heatmap_colors[round(length(heatmap_scale)/2)], 
+        high = heatmap_colors[length(heatmap_scale)], 
+        midpoint = 0.5,
+        limits = c(0.1, 0.9)
+      ) +
+      guides(fill = guide_colorbar(
+        title.position = "left", title.hjust = 0.5, 
+        direction = "horizontal"
+      )) +
+      labs(
+        x = NULL, y = NULL, fill = "ROC\nScore",
+        title = "C. Epigenetic"
+      ) +
+      custom_theme +
+      theme(
+        legend.position = "bottom",
+        plot.title = element_text(hjust = 1),
+        axis.text.x.top = element_text(
+          angle = 90, hjust = 0, vjust = 0.5, size = 8),
+        strip.background = element_rect(fill = "white", color = "black"),
+        strip.placement = "outside",
+        axis.line = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.ticks.x = element_blank(),
+        aspect.ratio = length(epigenetic_heatmap_feats) / 
+          (length(heatmap_sample_levels) - 1)
+      )
+    
+    bps_plot <- composite_heatmap_data %>%
+      dplyr::filter(feat %in% bound_protein_feats) %>%
+      dplyr::mutate(feat = factor(
+        feat, levels = rev(bound_protein_feats)
+      )) %>%
+      ggplot() + 
+      geom_tile(
+        aes(x = response, y = feat, fill = value), 
+        color = 'grey60'
+      ) +
+      geom_text(
+        aes(
+          x = response, y = feat, label = stringr::str_trim(sym)
+        ), 
+        color = "black", size = 3, 
+        fontface = "bold", family = "Courier"
+      ) + 
+      facet_grid(. ~ timepoint) +
+      scale_x_discrete(position = "top") +
+      scale_fill_gradient2(
+        breaks = c(0.2, 0.4, 0.6, 0.8), 
+        low = heatmap_colors[1], 
+        mid = heatmap_colors[round(length(heatmap_scale)/2)], 
+        high = heatmap_colors[length(heatmap_scale)], 
+        midpoint = 0.5
+      ) +
+      guides(fill = guide_colorbar(
+        title.position = "left", title.hjust = 0.5, 
+        direction = "horizontal"
+      )) +
+      labs(
+        x = NULL, y = NULL, fill = "ROC\nScore",
+        title = "B. Bound Proteins"
+      ) +
+      custom_theme +
+      theme(
+        legend.position = "none",
+        plot.title = element_text(hjust = 1),
+        axis.text.x.top = element_text(
+          angle = 90, hjust = 0, vjust = 0.5, size = 8),
+        strip.background = element_rect(fill = "white", color = "black"),
+        strip.placement = "outside",
+        axis.line = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.ticks.x = element_blank(),
+        aspect.ratio = length(bound_protein_feats) / 
+          (length(heatmap_sample_levels) - 1)
+      )
+
+    heatmap_plots <- list(gen_plot, epi_plot, bps_plot)
 })
 
 grid.arrange(
-  grobs = list(gen_heatmap$gen_plot, epi_heatmap$epi_plot), 
-  layout_matrix = matrix(c(1,1,1,2,2,2,2,2,2), nrow = 1))
+  grobs = heatmap_data$heatmap_plots,
+  layout_matrix = matrix(
+    c(
+      rep(c(rep(1, 10), rep(2, 8)), 12), 
+      rep(c(rep(3, 10), rep(2, 8)), 12), 
+      rep(3, 10), rep(NA, 8)
+    ), 
+    ncol = 18, byrow = TRUE
+  )
+)
 ```
-Figure 4ABC. A) Genomic features and (B and C) Epigenetic features associated with vector integration sites from transduction products and day 28 peripherial blood samples. Associations are calculated by an ROC area method. Values of the ROC area can vary between 0 (negatively associated) and 1 (positively associated), with 0.5 indicating no association. Numbers on the left of A indicated the lengths of genomic regions used to assess the genomic feature. All epigenetic features where assessed within a 10 kb window. Asterisks within the heatmap (on top of colors) indicate a significant difference compared to random, while asterisks beside the heatmap indicate comparisons between clinical response groups (TDN on left and Day 28 on right). P-values indications: p-value < 0.05 (\*), < 0.01 (\*\*), < 0.001 (\*\*\*).
+Figure 4. Frequencey of integration near chromosomal features is associated with outcome. (A) Genomic features (B) chromosome-bound proteins and (C) epigenetic marks associated with vector integration frequency are shown for transduction products and day 28 peripherial blood samples. CR/PRtd and PR/NR are compared (columns) to mapped chromosomal features (rows). Associations are calculated by an ROC area method (41, 45). Values of the ROC area can vary between 0 (negatively associated) and 1 (positively associated), with 0.5 indicating no association. TU indicates transcription unit. All epigenetic features were assessed within a 10 kb window. Asterisks beside the heatmap indicate comparisons between clinical response groups; separate analyses were carried out for TDN on left and Day 28 on right. P-values were calculated using the Wald test using a Chi Square distribution; no correction for multiple comparisons was applied. p-value < 0.05 (\*), < 0.01 (\*\*), < 0.001 (\*\*\*).
 
 ```{r pop_summary}
 specimen_population_summary <- within(
@@ -1937,22 +2126,27 @@ specimen_population_summary <- within(
     # Plot and compare chao1 distributions between timepoint and response
     chao1_plot_data <- specimen_summary %>% 
       dplyr::select(
-        patient, celltype, timepoint, Chao1, disease, determinant_response) %>%
+        patient, celltype, timepoint, Chao1, disease, determinant_response
+      ) %>%
       dplyr::mutate(
         determinant_response = gsub(
-          "_", "/", as.character(determinant_response)),
+          "_", "/", as.character(determinant_response)
+        ),
         determinant_response = factor(
-          determinant_response, levels = c("CR/PRtd", "PR/NR"))) %>%
+          determinant_response, levels = c("CR/PRtd", "PR/NR")
+        )
+      ) %>%
       dplyr::filter(
-        #disease == "CLL",
         timepoint %in% c("d0", "d28"), 
-        celltype %in% c("Tcells", "PBL")) %>%
+        celltype %in% c("Tcells", "PBL")
+      ) %>%
       dplyr::mutate(
         Chao1 = log(Chao1, base = 10),
         timepoint = as.character(timepoint),
         timepoint = gsub("d0", "TDN", timepoint),
         timepoint = gsub("d28", "Day 28", timepoint),
-        timepoint = factor(timepoint, levels = c("TDN", "Day 28")))
+        timepoint = factor(timepoint, levels = c("TDN", "Day 28"))
+      )
       
     chao1_plot <- ggplot(chao1_plot_data, aes(x = timepoint, y = Chao1)) +
       stat_summary(
@@ -1962,14 +2156,16 @@ specimen_population_summary <- within(
       geom_point(position = position_jitter(width = 0.125)) +
       scale_y_continuous(breaks = c(0:5)) +
       facet_wrap(~ determinant_response, scales = "fixed", nrow = 1) + 
-      labs(y = "Estimated Clones - Log(Chao1)", x = NULL) +
+      labs(y = bquote("Estimated Population Size (" ~log[10]~ ")"), x = NULL) +
       custom_theme +
       theme(
         axis.line.x = element_line(color = "black"),
         axis.line.y = element_line(color = "black"),
         strip.text = element_text(face = "plain", size = 12),
+        strip.background = element_rect(color = "black"),
         axis.text = element_text(size = 11),
-        axis.title = element_text(size = 12))
+        axis.title = element_text(size = 12)
+      )
     
     chao1_sig <- split(
       chao1_plot_data$Chao1, 
@@ -2094,14 +2290,14 @@ specimen_population_summary <- within(
 })
 ```
 
-```{r fig4DE, fig.width=4, fig.height=3}
+```{r fig4D, fig.width=4, fig.height=3}
 specimen_population_summary$chao1_plot
 pandoc.table(
   specimen_population_summary$chao1_sig, 
   style = "simple", split.table = Inf, digits = 3)
 ```
 
-Figure 4DE. D) Box plot representation of Chao1 estimated population sizes for responders (CR and PRtd), comparing the transduction product and day 28 samples (PR and NR).  E) Box plot representations of Chao1 estimated population sizes for nonresponders, comparing the transduction products and day 28 samples.
+Figure 4. (D) Right: box plot representation of Chao1 estimated population sizes for responders (CR and PRtd), comparing the transduction product and day 28 samples (PR and NR). Left: box plot representations of Chao1 estimated population sizes for nonresponders, comparing the transduction products and day 28 samples (p-values – CR/PRtd-TDN ~ PR/NR-TDN: 0.033, CR/PRtd-TDN ~ CR/PRtd-Day 28: < 0.001, PR/NR-TDN ~ PR/NR-Day 28: < 0.001, calculated using Wilcoxon tests with a Benjamini-Hochberg correction for multiple comparisons). Sources of annotation include: (20, 67-72).  
 
 \newpage
 ## Figure 5. Predicting clinical outcome from integration site data.
@@ -2686,34 +2882,33 @@ model_analysis <- within(
     # Feature annotations ----
     all_features <- colnames(tdn_mat)
     format_features <- structure(
-      c("unique sites", "Shannon index", 
-        "Gini index", "Chao(1) est.", 
-        "UC50", "percent in txn. unit", 
-        "percent in same orientation", "percent near txn. unit", 
-        "percent in onco-related gene", "estimated abundance", 
-        "relative abundance", "RefSeq 10kb", 
+      c("Unique Sites", "Shannon Index", 
+        "Gini Index", "Chao(1) est.", 
+        "UC50", "Percent in Txn Units", 
+        "Percent in Same Orientation", "Percent Near Txn Units", 
+        "Percent in Onco-related Txn Unit", "Estimated Abundance", 
+        "Relative Abundance", "RefSeq 10kb", 
         "RefSeq 100kb", "RefSeq 1Mb", 
-        "gc.100bp", "gc.1kb", "gc.10kb", "gc.100kb", "gc.1Mb", 
-        "cpg.< 1kb", "cpg.< 10kb", 
-        "cpg.Density 10kb", "cpg.Density 100kb", "cpg.Density 1Mb",
-        "dnase.< 1kb", "dnase.< 10kb", 
-        "dnase.< 100kb", "dnase.< 1Mb", 
+        "GC 100bp", "GC 1kb", "GC 10kb", "GC 100kb", "GC 1Mb", 
+        "CpG sites within 1kb", "CpG sites within 10kb", 
+        "CpG Density 10kb", "CpG Density 100kb", "CpG Density 1Mb",
+        "DNaseI sites within 1kb", "DNaseI sites within 10kb", 
+        "DNaseI sites within 100kb", "DNaseI sites within 1Mb", 
         "Activated CD4+ HDAC6", "Activated CD4+ Tip60", 
         "Activated Nucleosomes", "Brd2 promoters", 
         "Brd3 promoters", "Brd4 promoters", "CTCF", 
         "H2AK5ac", "H2AK9ac", "H2AZ", "H2BK120ac", "H2BK12ac", "H2BK20ac", 
-        "H2BK5ac", "H2BK5me1", 
-        "H3K14ac", "H3K18ac", "H3K23ac", "H3K27ac", "H3K27me1", "H3K27me2", 
-        "H3K27me3", "H3K36ac", "H3K36me1", "H3K36me3", "H3K4ac", "H3K4me1", 
-        "H3K4me2", "H3K4me3", "H3K79me1", "H3K79me2", "H3K79me3", "H3K9ac", 
-        "H3K9me1", "H3K9me2", "H3K9me3", "H3R2me1", "H3R2me2", "H4K12ac", 
-        "H4K16ac", "H4K20me1", "H4K20me3", "H4K5ac", "H4K8ac", "H4K91ac",
-        "H4R3me2", "HP1a promoters", "HP1b promoters", 
+        "H2BK5ac", "H2BK5me1", "H3K14ac", "H3K18ac", "H3K23ac", "H3K27ac", 
+        "H3K27me1", "H3K27me2", "H3K27me3", "H3K36ac", "H3K36me1", "H3K36me3", 
+        "H3K4ac", "H3K4me1", "H3K4me2", "H3K4me3", "H3K79me1", "H3K79me2", 
+        "H3K79me3", "H3K9ac", "H3K9me1", "H3K9me2", "H3K9me3", "H3R2me1", 
+        "H3R2me2", "H4K12ac", "H4K16ac", "H4K20me1", "H4K20me3", "H4K5ac", 
+        "H4K8ac", "H4K91ac", "H4R3me2", "HP1a promoters", "HP1b promoters", 
         "NRSF", "PolII", "Resting CD4+ CBP", "Resting CD4+ HDAC1", 
         "Resting CD4+ HDAC2", "Resting CD4+ HDAC3", "Resting CD4+ HDAC6", 
         "Resting CD4+ MOF", "Resting CD4+ p300", "Resting CD4+ PCAF", 
         "Resting CD4+ Tip60", "Resting Nucleosomes", 
-        "clusters represented", "sites in clusters", "abundance in clusters"),
+        "Clusters Represented", "Sites in Clusters", "Abundance in Clusters"),
       names = all_features)
     
     grouped_features <- structure(
@@ -2725,6 +2920,7 @@ model_analysis <- within(
         "CpG_counts.1k", "CpG_counts.10k", "CpG_density.10k", 
         "CpG_density.100k", "CpG_density.1M", "DNaseI_count.1k", 
         "DNaseI_count.10k", "DNaseI_count.100k", "DNaseI_count.1M",
+        "Brd2_promoters.10k", "Brd3_promoters.10k", "Brd4_promoters.10k",
         "H2AK5ac.10k", "H2AK9ac.10k", "H2AZ.10k", "H2BK120ac.10k", 
         "H2BK12ac.10k", "H2BK20ac.10k", "H2BK5ac.10k", "H2BK5me1.10k", 
         "H3K14ac.10k", "H3K18ac.10k", "H3K23ac.10k", "H3K27ac.10k", 
@@ -2735,8 +2931,7 @@ model_analysis <- within(
         "H3K9me3.10k", "H3R2me1.10k", "H3R2me2.10k", "H4K12ac.10k", 
         "H4K16ac.10k", "H4K20me1.10k", "H4K20me3.10k", "H4K5ac.10k", 
         "H4K8ac.10k", "H4K91ac.10k", "H4R3me2.10k", "CTCF.10k", "NRSF.10k",
-        "PolII.10k", "Brd2_promoters.10k", "Brd3_promoters.10k", 
-        "Brd4_promoters.10k", "HP1a_promoters.10k", "HP1b_promoters.10k", 
+        "PolII.10k", "HP1a_promoters.10k", "HP1b_promoters.10k", 
         "Act_CD4_HDAC6.10k", "Act_CD4_Tip60.10k", "ActivatedNucleosomes.10k", 
         "RestingNucleosomes.10k", "Rest_CD4_CBP.10k", "Rest_CD4_HDAC1.10k",
         "Rest_CD4_HDAC2.10k", "Rest_CD4_HDAC3.10k", "Rest_CD4_HDAC6.10k",
@@ -2744,8 +2939,8 @@ model_analysis <- within(
         "Rest_CD4_Tip60.10k"
       ),
       names = c(
-        rep("Population", 10), rep("Genomic", 21), 
-        rep("Epigenetic", 39), rep("Bound Proteins", 21)
+        rep("Population", 10), rep("Genomic", 24), 
+        rep("Epigenetic", 39), rep("Bound Proteins", 18)
       )
     )
 
@@ -2753,36 +2948,7 @@ model_analysis <- within(
 )
 ```
 
-```{r fig5AB, fig.height=3.5, fig.width=7}
-model_analysis <- within(
-  model_analysis, {
-    # TDN Model cross-validation
-    lambda_plot_tdn <- plot_lasso(cv_tdn_pca, minOnly = TRUE) +
-      labs(title = "Transduction Product Model") +
-      theme(plot.title = element_text(size = 10, face = "bold"))
-    
-    lambda_plot_mod_tdn <- plot_lasso_mod(
-        cv_tdn_pca, custom_breaks = c(21, 20, 19, 17, 15, 4), minOnly = TRUE) +
-      theme(plot.title = element_text(size = 10, face = "bold"))
-    
-    # D28 Model cross-validation
-    lambda_plot_d28 <- plot_lasso(cv_d28_pca, minOnly = TRUE) +
-      labs(title = "Day 28 Sample Model") +
-      theme(plot.title = element_text(size = 10, face = "bold"))
-    
-    lambda_plot_mod_d28 <- plot_lasso_mod(
-        cv_d28_pca, custom_breaks = c(0, 5, 9, 15, 16), minOnly = TRUE) +
-      theme(plot.title = element_text(size = 10, face = "bold"))
-})
-
-grid.arrange(
-  grobs = list(
-    model_analysis$lambda_plot_tdn, model_analysis$lambda_plot_d28), 
-  nrow = 1)
-```
-Figure 5AB. A total of 91 features spanning population metrics, genomic, and epigenetic features from 29 patients were used in a least absolute shrinkage and selection operator (LASSO) logistic regression to build a classification model.  Results from leave-one-out cross-validation of models based on A) transduction products and B) day 28 peripherial blood samples. Misclassification error is reduced as models get more accurate, and often more complex (number of variables presented on the x-axis). Error bars indicated standard error and the minimum value of misclassification is indicate on the right of the plots. 
-
-```{r fig5CD, fig.height=6, fig.width=10.25, out.width="80%"}
+```{r fig5AB, fig.height=6, fig.width=10.25, out.width="80%"}
 # Model contributions
 model_analysis <- within(
   model_analysis, {
@@ -2882,13 +3048,16 @@ model_analysis <- within(
       coord_flip() +
       labs(
         x = NULL,
-        y = "Percent Contribution to Model\nTransduction Products\n<---     ---->\nPR/NR    CR/PRtd") +
+        y = "Percent Contribution to Model\n<---     ---->\nPR/NR    CR/PRtd",
+        title = "Transduction Products"
+      ) +
       theme(
         panel.grid.major.y = element_line(
           color = "grey75", linetype = "dotted"),
         legend.position = "none",
         axis.text.y = element_text(size = 9),
-        strip.text.y = element_text(angle = 0))
+        strip.text.y = element_text(angle = 0)
+      )
     
     d28_contrib_plot <- compare_df %>%
       dplyr::filter(abs(pct) >= min_pct) %>%
@@ -2907,13 +3076,16 @@ model_analysis <- within(
       coord_flip() +
       labs(
         x = NULL,
-        y = "Percent Contribution to Model\nDay 28 Samples\n<---     ---->\nPR/NR    CR/PRtd") +
+        y = "Percent Contribution to Model\n<---     ---->\nPR/NR    CR/PRtd",
+        title = "Day 28 Samples"
+      ) +
       theme(
         panel.grid.major.y = element_line(
           color = "grey75", linetype = "dotted"),
         legend.position = "none",
         axis.text.y = element_text(size = 9),
-        strip.text.y = element_text(angle = 0))
+        strip.text.y = element_text(angle = 0)
+      )
 })
 
 grid.arrange(
@@ -2921,14 +3093,16 @@ grid.arrange(
     model_analysis$tdn_contrib_plot, model_analysis$d28_contrib_plot),
   nrow = 1)
 ```
-Figure 5CD. Bar plots indicate the contribution of different features or metrics to classification within each model. Positive contribution indicates direct correlation towards positive clinical outcome while negative contributions indicate a direct correlation to negative clinical outcomes. C) Transduction product model and D) day 28 periferial blood model.
+Figure 5. Predicting clinical outcome from integration site data. A total of 91 features spanning population metrics, genomic features, and epigenetic features from 29 patients were used in least absolute shrinkage and selection operator (LASSO) logistic regression to build a classification model. Results from leave-one-out cross-validation of models based on transduction/pre-infusion products (A) and day 28 peripherial blood samples (B). Bar plots indicate the contribution of different features to classification in each model. Positive values indicate correlation with a positive clinical outcome while negative contributions indicate a correlation with negative clinical outcomes. 
 
 \newpage
-```{r fig5EFG, fig.height=6, fig.width=4}
+```{r fig5C, fig.height=3, fig.width=3}
 gen_express <- within(
   list(), {
     
     patient_tdn_specimens <- model_analysis$patient_tdn_specimens
+    select_patients <- patient_tdn_specimens$patient
+    select_response <- patient_tdn_specimens$determinant_response
     
     # Load baseline txn ----
     txn_mock_stim <- data.table::fread(
@@ -2976,6 +3150,11 @@ gen_express <- within(
       function(x) apply(x, 2, sum)
     ))
     
+    # Normalize patients between model development and expression data ----
+    keep_pats_idx <- which(select_patients %in% colnames(txn_exp_stim_mat))
+    select_patients <- select_patients[keep_pats_idx]
+    select_response <- select_response[keep_pats_idx]
+    
     # Normalized data to read density (R/K/M) ----
     txn_mock_stim_mat <- apply(
       txn_mock_stim_mat, 2, function(x) (x/1000)/(sum(x)/1E6)
@@ -3002,7 +3181,7 @@ gen_express <- within(
       wilcox = apply(cbind(txn_mock_stim_mat, txn_exp_stim_mat), 1, function(x){
         
         z <- wilcox.test(
-          x = x[1:ncol(txn_mock_stim_mat)], 
+          x = x[seq_len(ncol(txn_mock_stim_mat))], 
           y = x[(ncol(txn_mock_stim_mat)+1):(2*ncol(txn_mock_stim_mat))])
         
         z$p.value
@@ -3011,6 +3190,85 @@ gen_express <- within(
       row.names = NULL
     )
     
+    txn_mock_pca <- prcomp(
+      t(txn_mock_stim_mat[,select_patients]), scale. = TRUE
+    )
+    
+    txn_exp_pca <- prcomp(
+      t(txn_exp_stim_mat[,select_patients]), scale. = TRUE
+    )
+    
+    txn_stim_pca <- prcomp(
+      t(txn_stim_mat[,select_patients]), scale. = TRUE
+    )
+    
+    mock_plot <- plot_mva(D = txn_mock_pca$x, cl = select_response) +
+      labs(
+        x = paste0(
+          "PC1 (", 
+          round(100*summary(txn_mock_pca)$importance[2,1], digits = 1), 
+          "%)"
+        ),
+        y = paste0(
+          "PC2 (", 
+          round(100*summary(txn_mock_pca)$importance[2,2], digits = 1), 
+          "%)"
+        ),
+        title = "A. Absolute mock stimulated expression"
+      ) + 
+      base_theme
+    
+    exp_plot <- plot_mva(D = txn_exp_pca$x, cl = select_response) +
+      labs(
+        x = paste0(
+          "PC1 (", 
+          round(100*summary(txn_exp_pca)$importance[2,1], digits = 1), 
+          "%)"
+        ),
+        y = paste0(
+          "PC2 (", 
+          round(100*summary(txn_exp_pca)$importance[2,2], digits = 1), 
+          "%)"
+        ),
+        title = "B. Absolute stimulated expression"
+      ) + 
+      base_theme
+    
+    stim_plot <- plot_mva(D = txn_stim_pca$x, cl = select_response) +
+      labs(
+        x = paste0(
+          "PC1 (", 
+          round(100*summary(txn_stim_pca)$importance[2,1], digits = 1), 
+          "%)"
+        ),
+        y = paste0(
+          "PC2 (", 
+          round(100*summary(txn_stim_pca)$importance[2,2], digits = 1), 
+          "%)"
+        ),
+        title = "C. Differential stimulated expression"
+      ) + 
+      base_theme
+    
+    #pca_plots <- grid.arrange(
+    #  grobs = list(mock_plot, exp_plot, stim_plot), ncol = 1
+    #)
+    
+    t.test(
+      x = split(txn_mock_pca$x[, 1], select_response)[[1]],
+      y = split(txn_mock_pca$x[, 1], select_response)[[2]]
+    )
+    
+    wilcox.test(
+      x = split(txn_exp_pca$x[, 1], select_response)[[1]],
+      y = split(txn_exp_pca$x[, 1], select_response)[[2]]
+    )
+    
+    t.test(
+      x = split(txn_stim_pca$x[, 1], select_response)[[1]],
+      y = split(txn_stim_pca$x[, 1], select_response)[[2]]
+    )
+
     # Select patients and gene data ----
     pats <- dplyr::intersect(std_clin_patients, colnames(txn_exp_stim_mat))
     
@@ -3219,7 +3477,7 @@ gen_express <- within(
       labs(
         x = "Patient Response Groups", 
         y = "Percent of Integration Sites",
-        title = "B."
+        title = "C."
       ) +
       custom_theme + 
       theme(
@@ -3249,8 +3507,7 @@ gen_express <- within(
       labs(
         x = "Stimulated Expression Rank Groups", 
         y = "Percent of Integration Sites",
-        color = NULL,
-        title = "A."
+        color = NULL
       ) +
       custom_theme + 
       theme(
@@ -3286,24 +3543,1854 @@ gen_express <- within(
   }
 )
 
-grid.arrange(
-  grobs = list(
-    gen_express$total_gene_exp_plot, gen_express$pct_intsites_by_grp_plot
-  ),
-  layout_matrix = matrix(c(1,1,1,2,2), ncol = 1)
-)
+gen_express$pct_intsites_by_grp_plot
 
 ```
-Figure 5EGF. ...
+Figure 5. (C) Vector integration in the CR/PRtd sample is favored in transcription units preferentially active in the T-cells from CR/PRtd. RNA-seq data were analyzed to identify the top 500 genes that were preferentially active in pre-infusion products from CR/PRtd versus PR/NR. The frequency of integration in these genes (y-axis) was then compared between integration sites from CR/PRtd versus PR/NR (x-axis). 
 
 \newpage
-# Supplemental figures and tables
+# Supplemental Materials
+```{r add_investigations}
+add_investigations <- within(
+  list(), {
 
-## Table S1. Patient Information
+    set.seed(1)
+    # Memory subset abundance by disease and response groups ----
+    add_pat_data <- read.csv(
+        file.path(outputDir, "additional_patient_data.csv")
+      ) %>%
+      dplyr::select(-Patient_Code, -Disease)
+    
+    tdn_metrics <- summaries$specimen %>%
+      dplyr::filter(
+        celltype == "Tcells" & 
+          timepoint == "d0" & 
+          patient %in% std_clin_patients
+      ) %>%
+      dplyr::left_join(add_pat_data, by = c("patient" = "Patient_ID")) %>%
+      dplyr::mutate(
+        determinant_response = gsub("_", "/", determinant_response),
+        determinant_response = factor(
+          determinant_response, levels = c("PR/NR", "CR/PRtd")
+        ),
+        rel_disease = factor(
+          ifelse(disease == "CLL", "CLL", "ALL"),
+          levels = c("ALL", "CLL")
+        )
+      )
+    
+    mem_t_test <- dplyr::select(
+        tdn_metrics, rel_disease, determinant_response, 
+        "mem_pct" = pct_CD8posCCR7posCD45ROpos_Tcell_Frequency_at_Apheresis_by_pretransduction
+      ) %>%
+      dplyr::group_by(rel_disease) %>%
+      dplyr::summarise(p_value = t.test(mem_pct ~ determinant_response)$p.value)
+    
+    mem_subsets_plot <- ggplot(
+        tdn_metrics, 
+        aes(
+          x = determinant_response, 
+          y = pct_CD8posCCR7posCD45ROpos_Tcell_Frequency_at_Apheresis_by_pretransduction
+        )
+      ) +
+      stat_summary(fun.data = "mean_cl_boot", geom = "crossbar", color = "black") +
+      geom_point(
+        aes(shape = disease, fill = determinant_response), 
+        position = position_jitter(width = 0.25),
+        size = 2.5
+      ) +
+      facet_grid(. ~ rel_disease) +
+      labs(
+        shape = "Disease", fill = "Response", 
+        x = NULL, y = "% Central Memory within Infusion Product"
+      ) + 
+      scale_fill_brewer(palette = "Set1") +
+      scale_shape_manual(values = c(25, 24, 21)) +
+      guides(fill = guide_legend(override.aes = aes(shape = 22, size = 3))) +
+      custom_theme +
+      theme(
+        strip.background = element_rect(color = "black"),
+        axis.line = element_line(color = "black")
+      )
+    
+    # Test for disease specific differences within the data sets ----
+    # code here is condensed, for comments see model_analysis section
+    center_scale <- function(input, trn = NULL){
+      if(is.null(trn)) trn <- input
+      means <- apply(trn, 2, mean)
+      stdevs <- apply(trn, 2, sd)
+      t(apply(input, 1, function(x) (x - means) / stdevs))
+    }
 
-Written to file: /path/to/CART19_intsite_manuscript_analysis/data/sup_tbl_1_patient_info.csv
+    
+    tdn_data <- tdn_metrics %>%
+      dplyr::filter(patient %in% std_clin_patients) %>%
+      dplyr::select(
+        patient, rel_disease, everything(), -trial, -celltype, -timepoint, 
+        -Age_at_CAR_Tcell_Infusion, -pct_CAR_Tcell_Frequency_in_Infusion_Product,
+        -pct_CD8posCCR7posCD45ROpos_Tcell_Frequency_at_Apheresis_by_pretransduction
+      )
+    
+    tdn_mat <- as.matrix(
+      tdn_data[,(which(names(tdn_data) == "specimen")+1):ncol(tdn_data)]
+    )
+    
+    rownames(tdn_mat) <- tdn_data$patient
 
-```{r pat_table}
+    ## Patient and response vectors ----
+    pats_tdn <- tdn_data$patient
+    disease_tdn <- tdn_data$rel_disease
+    vars <- colnames(tdn_mat)
+    
+    ## Dimensional reduction ----
+    tdn_scaled <- center_scale(tdn_mat)
+    tdn_pca <- prcomp(x = tdn_scaled, retx = TRUE, scale. = FALSE)
+    tdn_trans <- predict(tdn_pca, tdn_scaled)
+    
+    ## Generate LASSO models ----
+    tdn_pca_cutoff <- data.frame(
+        component = 2:ncol(tdn_trans),
+        misclass = sapply(2:ncol(tdn_trans), function(cutoff){
+          
+          cv <- cv.glmnet(
+            x = tdn_trans[, seq_len(cutoff), drop = FALSE], y = disease_tdn, 
+            family = "binomial", type.measure = "class", 
+            nfold = nrow(tdn_trans), grouped = FALSE, parallel = TRUE
+          )
+          
+          cv$cvm[match(cv$lambda.min, cv$lambda)]
+          
+        })) %>%
+      dplyr::filter(misclass == min(misclass)) %>%
+      dplyr::filter(component == min(component)) %$%
+      component
+
+    cv_tdn_pca <- cv.glmnet(
+      x = tdn_trans[,seq_len(tdn_pca_cutoff)], y = disease_tdn, 
+      family = "binomial", alpha = 1, type.measure = "class", 
+      nfold = nrow(tdn_trans), grouped = FALSE, parallel = TRUE, keep = TRUE
+    )
+    
+    tdn_min_model <- glmnet(
+      x = tdn_trans[,seq_len(tdn_pca_cutoff)], y = disease_tdn, 
+      family = "binomial", alpha = 1, lambda = cv_tdn_pca$lambda.min
+    )
+    
+    disease_lasso_contrib_plot <- tdn_pca$rotation[,seq_len(tdn_pca_cutoff)] %*% 
+      tdn_min_model$beta %>%
+      as.matrix %>% as.data.frame() %>%
+      dplyr::mutate(
+        factors = factor(
+          row.names(.), levels = model_analysis$grouped_features
+        ),
+        factor_grps = names(model_analysis$grouped_features)[
+          match(as.character(factors), model_analysis$grouped_features)
+        ],
+        factor_grps = factor(
+          factor_grps, levels = unique(names(model_analysis$grouped_features))
+        ),
+        contrib = - 100 * s0 * abs(s0) / sum(s0**2)
+      ) %>%
+      dplyr::filter(abs(contrib) >= 1) %>%
+      ggplot(aes(x = factors, y = contrib)) +
+      geom_hline(yintercept = 0, color = "grey70") +
+      geom_col(fill = "black", color = "black") +
+      coord_flip() +
+      facet_grid(factor_grps ~ ., scales = "free", space = "free") +
+      #scale_fill_brewer(palette = "Set1") +
+      scale_x_discrete(labels = model_analysis$format_features) +
+      scale_y_continuous(
+        breaks = c(-8, -6, -4, -2, 0, 2, 4), labels = c(8, 6, 4, 2, 0, 2, 4)
+      ) +
+      labs(
+        y = "Variance Explained (%)\n CLL <------> ALL", 
+        x = "Measurements"
+      ) +
+      custom_theme +
+      theme(
+        legend.position = "none",
+        panel.grid.major.y = element_line(
+          color = "grey75", linetype = "dotted"),
+        strip.text.y = element_text(angle = 0),
+        strip.background = element_rect(color = "black")
+      )
+  
+    # Test for saturation / undersampling within the integration sites ----
+    ## Functions to help with calculations
+    jackIID <- function(ids, jrep = NULL, nrep = 10L){
+      
+      if( is.null(jrep) ) jrep <- sample(rep(seq_len(nrep), length = length(ids)))
+      
+      est0 <- vegan::estimateR(table(ids))
+      jackrep <- jrep
+      urepl <- unique(jrep)
+      
+      jackmat <- sapply(
+        urepl, function(x) vegan::estimateR(table(ids[jackrep!=x]))
+      )
+      
+      pseudo <- length(urepl) * est0 - (length(urepl)-1) * jackmat
+      rowMeans(pseudo)
+    }
+    
+    #' jackknife biased or unbiased Chao estimator
+    #'
+    #' @param replicatedSites df with column posid
+    #' @return number population size estimate
+    calculateChao <- function(ids, biased=TRUE){
+      if ( !biased ) { #regular Chao
+        cluster.tab <- table(ids)
+        return(round(vegan::estimateR(cluster.tab)["S.chao1"]))
+      }
+      round(jackIID(ids)["S.chao1"])
+    }
+    
+    specimen_sampling_data <- cond_uniq_sites %>%
+      as.data.frame(row.names = NULL) %>%
+      dplyr::group_by(specimen) %>%
+      dplyr::summarise(
+        sites = dplyr::n_distinct(posid),
+        chao1 = calculateChao(rep(posid, estAbund), biased = sites >= 10),
+        saturation = 100 * sites / max(c(chao1, sites))
+      ) %>%
+      dplyr::left_join(specimen_data, by = c("specimen" = "specimenaccnum")) %>%
+      dplyr::left_join(patient_data, by = "patient") %>%
+      dplyr::select(
+        patient, disease, determinant_response, specimen, celltype, timepoint, 
+        sites, chao1, saturation
+      ) %>%
+      dplyr::filter(
+        timepoint %in% c("d0", "d28") & patient %in% std_clin_patients
+      ) %>%
+      dplyr::mutate(
+        determinant_response = gsub("_", "/", determinant_response),
+        determinant_response = factor(
+          determinant_response, levels = c("PR/NR", "CR/PRtd")
+        ),
+        rel_disease = factor(
+          ifelse(disease == "CLL", "CLL", "ALL"),
+          levels = c("ALL", "CLL")
+        )
+      ) %>%
+      dplyr::select(
+        patient, disease, rel_disease, determinant_response, specimen, celltype, 
+        timepoint, sites, chao1, saturation
+      ) %>%
+      dplyr::mutate(
+        timepoint = factor(ifelse(
+            as.character(timepoint) == "d0", "Infusion\nProduct", "Day 28"
+          ), levels = c("Infusion\nProduct", "Day 28")
+        ),
+        grp = factor(paste0(
+          as.character(rel_disease), "-", as.character(timepoint)
+        ))
+      )
+    
+    sampling_wilcox <- specimen_sampling_data %>%
+      dplyr::group_by(timepoint) %>%
+      dplyr::summarise(
+        p.value = wilcox.test(saturation ~ rel_disease, exact = FALSE)$p.value
+      )
+    
+    sampling_plot <- specimen_sampling_data %>%
+      ggplot(aes(x = timepoint, y = saturation)) +
+      stat_summary(fun.data = "mean_cl_boot", geom = "crossbar") +
+      geom_point(
+        aes(shape = disease, fill = determinant_response),
+        size = 2, color = "black", 
+        position = position_jitterdodge(dodge.width = 0.75, jitter.width = 0.9)
+      ) +
+      scale_fill_brewer(palette = "Set1") +
+      scale_shape_manual(values = c(25, 24, 21)) +
+      facet_grid(. ~ rel_disease) +
+      labs(
+        x = NULL, y = "Sampling Saturation (%)", 
+        shape = "Disease", fill = "Response"
+      ) +
+      guides(fill = guide_legend(override.aes = aes(
+        shape = 22, size = 4, color = "black"
+      ))) +
+      custom_theme +
+      theme(
+        axis.line = element_line(color = "black"),
+        strip.background = element_rect(color = "black")
+      )
+    
+    # Enrichment for cancer-associated genes ----
+    ## Xie, M. et al. 2014 Nat. Med. "Age-related mutations associated with 
+    ## clonal hematopoietic expansion and malignancies", supplmental table 7 & 8
+    TCGA_list <- read.csv(
+        file.path(utilsDir, "Xie_et_al.2014_Nat_Med_SupTbl7.csv")
+      ) %>%
+      dplyr::mutate(
+        gene_name = alias_arbiter(
+          IDs = Gene_Name,
+          RefIDs = hgnc_complete$symbol,
+          aliasIDs = hgnc_complete$extended_alias,
+          sep = "|", remove_absent_IDs = NULL, quiet = TRUE)
+      ) %$%
+      gene_name
+    
+    clonal_hema_list <- c(
+        "ASXL1", "ATM", "AXL", "BCORL1", "CBL", "CDKN2A", "CREBBP", "DIDO1", 
+        "DNMT3A", "GNAS", "GUCY1A2", "HDAC4", "IDH2", "JAK2", "MBD1", "MECOM",
+        "MYLK", "NOTCH3", "PPM1D", "PRKDC", "RICTOR", "SETBP1", "SF1", 
+        "SF3B1", "SH2B3", "SNX25", "SOS1", "TET2", "TP53", "ZRSR2"
+      ) %>%
+      alias_arbiter(
+        IDs = .,
+        RefIDs = hgnc_complete$symbol,
+        aliasIDs = hgnc_complete$extended_alias,
+        sep = "|", remove_absent_IDs = NULL, quiet = TRUE
+      )
+    
+    reference_gene_lists <- list(
+      "allOnco (v3, 2017)" = oncoGenes,
+      "TSGene (v2, 2016)" = tum_sups,
+      "humanLymph" = badActors,
+      "COSMIC-CGC (v89)" = cosmic_genes,
+      "TCGA List" = TCGA_list,
+      "Clonal Hema." = clonal_hema_list
+    )
+    
+    shrt_list_names <- stringr::str_extract(
+        names(reference_gene_lists), "[\\w\\ \\.\\-]+"
+      ) %>%
+      stringr::str_trim()
+    
+    ovlpmat_gene_lists <- sapply(reference_gene_lists, function(x){
+      sapply(reference_gene_lists, function(y){
+        sum( x %in% y )
+      })
+    })
+    
+    goi_lists$Composite <- unique(unlist(goi_lists[c(1,3,4)]))
+    
+    # random_list <- gene_impact$gene_name[
+    #   sample.int(
+    #     n = nrow(gene_impact), 
+    #     size = length(unique(unlist(goi_lists))), 
+    #     replace = FALSE
+    #   )
+    # ]
+    
+    ref_size <- length(unique(gene_impact$gene_name))
+    
+    ref_ovlp_cnt <- sapply(reference_gene_lists, function(x){
+      sum(x %in% gene_impact$gene_name)
+    })
+    
+    compare_gene_lists <- mapply(function(glist, ovlp_cnt){
+        data.frame(
+            criteria = names(goi_lists),
+            size = sapply(goi_lists, length),
+            ovlp = sapply(goi_lists, function(x){
+              sum( glist %in% x )
+            }),
+            row.names = NULL
+          ) %>%
+          dplyr::mutate(
+            p.value = sapply(seq_len(n()), function(i){
+            
+              fisher.test(
+                matrix(
+                  c(
+                    ref_size - ovlp_cnt - size[i] + ovlp_cnt, 
+                    size[i] - ovlp[i], 
+                    ovlp_cnt - ovlp[i], 
+                    ovlp[i]
+                  ), 
+                  ncol = 2
+                ),
+                alternative = "greater"
+              )$p.value
+            
+            })
+          )
+        },
+        glist = reference_gene_lists,
+        ovlp_cnt = ref_ovlp_cnt,
+        SIMPLIFY = FALSE
+      ) %>%
+      dplyr::bind_rows(.id = "List") %>%
+      dplyr::group_by(criteria) %>%
+      dplyr::mutate(
+        sig = ifelse(p.value <= 0.05, "*", ""),
+        adj.p.value = p.adjust(p.value, method = "BH"),
+        adj.sig = ifelse(adj.p.value <= 0.05, "*", "")
+      ) %>%
+      dplyr::ungroup()
+    
+    compare_wide_frame <- compare_gene_lists %>%
+      dplyr::mutate(
+        print_val = paste0(
+          format(round(adj.p.value, digits = 3)), " (", ovlp, ")", adj.sig
+        ),
+        print_val = format(print_val, justify = "left"),
+        List = factor(List, levels = names(reference_gene_lists)),
+        criteria = factor(criteria, levels = unique(criteria))
+      ) %>%
+      dplyr::select(List, criteria, size, print_val) %>%
+      tidyr::spread(key = List, value = print_val)
+
+  }
+)
+```
+
+## Supplemental Figures
+
+## Supplemental Figure 1. Favored integration in active transcription units.
+```{r sup_fig_S01, fig.width=4, fig.height=3}
+gen_express$total_gene_exp_plot
+```
+Figure S1. Favored integration in active transcription units. (Top) Favoring of integration in CR/PRtd in active transcription units. RNA-seq data was used to annotate gene activity (as reads per kilobase per million; RPKM), then genes were distributed into 10 bins with equal numbers of genes, ranked from lowest to highest RPKM (x-axis). Integration sites (fragments called by sonicAbundance) were then distributed into those bins and scored (y-axis). (Bottom) As in (Top), but using RNA-seq data and integration site data for PR/NR. RNA-seq data used in this study was from Fraietta et al., Nat. Med 24, 563-571, 2018.
+
+\newpage
+## Supplemental Figure 2. Overlap between expanded clones from infusion products and day 28 samples
+```{r sup_fig_S02, fig.width=3, fig.height=3, out.width="50%"}
+exp_clone_ovlp <- within(
+  list(), {
+    
+    target_gene_number <- 50
+    
+    # Import objects from figure 2
+    tdn_df <- intsite_clone_skew_plots$tdn_df
+    d28_CR_PRtd <- intsite_clone_skew_plots$d28_CR_PRtd
+    d28_PR_NR <- intsite_clone_skew_plots$d28_PR_NR
+    
+    # Define cutoffs
+    cutoff_tdn <- head(tdn_df, n = target_gene_number) %$% min(estAbund)
+    cutoff_d28_CR <- head(d28_CR_PRtd, n = target_gene_number) %$% min(estAbund)
+    cutoff_d28_NR <- head(d28_PR_NR, n = target_gene_number) %$% min(estAbund)
+    
+    # Gene lists of clones from top X amount
+    tdn_genes <- tdn_df %>%
+      dplyr::filter(estAbund >= cutoff_tdn) %$%
+      unique(gene_id_wo_annot)
+    
+    d28_CR_genes <- d28_CR_PRtd %>%
+      dplyr::filter(estAbund >= cutoff_d28_CR) %$%
+      unique(gene_id_wo_annot)
+
+    d28_NR_genes <- d28_PR_NR %>%
+      dplyr::filter(estAbund >= cutoff_d28_NR) %$%
+      unique(gene_id_wo_annot)
+    
+    # Venn diagram of three populations
+    futile.logger::flog.threshold(
+      futile.logger::ERROR, name = "VennDiagramLogger"
+    )
+    
+    VennDiagram::venn.diagram(
+      list(
+        "Infusion\nProducts" = tdn_genes, 
+        "CR/PRtd" = d28_CR_genes, 
+        "PR/NR" = d28_NR_genes
+      ), 
+      filename = file.path(
+        workingDir, "reports", "manuscript_figures", "sup_fig_S5-1.png"
+      ), 
+      resolution = 300, height = 5, width = 5,  units = "in", imagetype = "png"
+    )
+    
+    # Intersecting genes
+    total_gene_cnt <- length(unique(c(
+      tdn_df$gene_id_wo_annot, 
+      d28_CR_PRtd$gene_id_wo_annot, 
+      d28_PR_NR$gene_id_wo_annot
+    )))
+    
+    tdn_only <- tdn_genes[!tdn_genes %in% c(d28_CR_genes, d28_NR_genes)]
+    CR_only <- d28_CR_genes[!d28_CR_genes %in% c(tdn_genes, d28_NR_genes)]
+    NR_only <- d28_NR_genes[!d28_NR_genes %in% c(tdn_genes, d28_CR_genes)]
+    tdn_CR_xover <- intersect(tdn_genes, d28_CR_genes)
+    tdn_NR_xover <- intersect(tdn_genes, d28_NR_genes)
+    CR_NR_xover <- intersect(d28_CR_genes, d28_NR_genes)
+    trip_xover <- vintersect(list(tdn_genes, d28_CR_genes, d28_NR_genes))
+    
+    # Fisher tests to see if this is significant overlap
+    tcn_CR_test <- fisher.test(
+      x = matrix(
+        c(
+          total_gene_cnt - length(union(tdn_genes, d28_CR_genes)),
+          length(tdn_genes) - length(tdn_CR_xover),
+          length(d28_CR_genes) - length(tdn_CR_xover),
+          length(tdn_CR_xover)
+        ),
+        nrow = 2
+      ),
+      alternative = "greater"
+    )
+
+    tcn_NR_test <- fisher.test(
+      x = matrix(
+        c(
+          total_gene_cnt - length(union(tdn_genes, d28_NR_genes)),
+          length(tdn_genes) - length(tdn_NR_xover),
+          length(d28_NR_genes) - length(tdn_NR_xover),
+          length(tdn_NR_xover)
+        ),
+        nrow = 2
+      ),
+      alternative = "greater"
+    )
+
+    CR_NR_test <- fisher.test(
+      x = matrix(
+        c(
+          total_gene_cnt - length(union(d28_CR_genes, d28_NR_genes)),
+          length(d28_CR_genes) - length(CR_NR_xover),
+          length(d28_NR_genes) - length(CR_NR_xover),
+          length(CR_NR_xover)
+        ),
+        nrow = 2
+      ),
+      alternative = "greater"
+    )
+    
+  }
+)
+
+include_graphics(path = file.path(
+  workingDir, "reports", "manuscript_figures", "sup_fig_S5-1.png"
+))
+```
+Figure S2. Assessment of genes shared by expanded clones from infusion products (TDN), day 28 samples from CR/PRtd, and day 28 samples from PR/NR patients. The top 50 clones were selected from each population (data from Figure 2 A-C). Genes associated with expanded clones only with TDN products: `r paste(exp_clone_ovlp$tdn_only, collapse = ", ")`. Genes associated only with day 28 products from CR/PRtd patients: `r paste(exp_clone_ovlp$CR_only, collapse = ", ")`. Genes associated only with day 28 products from PR/NR patients: `r paste(exp_clone_ovlp$NR_only, collapse = ", ")`. Genes associated with both TDN products and day 28 products from CR/PRtd patients: `r paste(exp_clone_ovlp$tdn_CR_xover, collapse = ", ")`. Genes associated with both TDN products and day 28 products from PR/NR patients: `r paste(exp_clone_ovlp$tdn_NR_xover, collapse = ", ")`. Genes associated with both CR/PRtd and PR/NR patients on day 28 samples: `r paste(exp_clone_ovlp$CR_NR_xover, collapse = ", ")`.
+
+\newpage
+## Supplemental Figure 3. Integration sites in cells undergoing clonal expansion are found recurrently in specific host genes
+```{r sup_fig_S03, fig.width=4, fig.height=4}
+freq_clonal_exp <- within(
+  list(), {
+    pct <- 0.05
+    permute_cnt <- 100
+    min_pats <- 3
+    set.seed(1)
+    
+    # Analysis of patient samples ----
+    #gene_cnts_by_pat_rel_tp <- cond_uniq_sites %>% 
+    #  as.data.frame(row.names = NULL) %>% 
+    #  dplyr::filter(timepoint != "d0", patient %in% std_clin_patients) %>% 
+    #  dplyr::group_by(patient, posid, gene_id_wo_annot) %>% 
+    #  dplyr::summarise(max_est = max(estAbund), max_rel = max(relAbund)) %>% 
+    #  dplyr::group_by(patient) %>% 
+    #  dplyr::filter(max_rel >= quantile(max_rel, probs = 1 - pct)) %>%
+    #  dplyr::summarise(gene_cnt = n_distinct(gene_id_wo_annot))
+    
+    gene_cnts_by_pat_est_tp <- cond_uniq_sites %>% 
+      as.data.frame(row.names = NULL) %>% 
+      dplyr::filter(timepoint != "d0", patient %in% std_clin_patients) %>% 
+      dplyr::group_by(patient, posid, gene_id_wo_annot) %>% 
+      dplyr::summarise(max_est = max(estAbund), max_rel = max(relAbund)) %>% 
+      dplyr::group_by(patient) %>% 
+      dplyr::filter(max_est >= quantile(max_est, probs = 1 - pct)) %>%
+      dplyr::summarise(gene_cnt = n_distinct(gene_id_wo_annot))
+
+    # top_genes_rel_tp <- cond_uniq_sites %>% 
+    #   as.data.frame(row.names = NULL) %>% 
+    #   dplyr::filter(timepoint != "d0", patient %in% std_clin_patients) %>% 
+    #   dplyr::group_by(patient, posid, gene_id_wo_annot) %>% 
+    #   dplyr::summarise(max_est = max(estAbund), max_rel = max(relAbund)) %>% 
+    #   dplyr::group_by(patient) %>% 
+    #   dplyr::filter(max_rel >= quantile(max_rel, probs = 1 - pct)) %>% 
+    #   dplyr::group_by(gene_id_wo_annot) %>% 
+    #   dplyr::summarise(
+    #     n_pats = n_distinct(patient), n_clones = n_distinct(patient, posid)
+    #   ) %>% 
+    #   dplyr::ungroup() %>% 
+    #   dplyr::arrange(desc(n_pats)) %>% 
+    #   dplyr::filter(n_pats >= min_pats)
+
+    top_genes_est_tp <- cond_uniq_sites %>% 
+      as.data.frame(row.names = NULL) %>% 
+      dplyr::filter(timepoint != "d0", patient %in% std_clin_patients) %>% 
+      dplyr::group_by(patient, posid, gene_id_wo_annot) %>% 
+      dplyr::summarise(max_est = max(estAbund), max_rel = max(relAbund)) %>% 
+      dplyr::group_by(patient) %>% 
+      dplyr::filter(max_est >= quantile(max_est, probs = 1 - pct)) %>% 
+      dplyr::group_by(gene_id_wo_annot) %>% 
+      dplyr::summarise(
+        n_pats = n_distinct(patient), n_clones = n_distinct(patient, posid)
+      ) %>% 
+      dplyr::ungroup() %>% 
+      dplyr::arrange(desc(n_pats)) %>% 
+      dplyr::filter(n_pats >= min_pats)
+
+    ## Generate random sampling data ----
+    ## and identify the number of genes overlapping
+    # permute_data_rel_tp <- dplyr::bind_rows(
+    #     lapply(seq_len(permute_cnt), function(i){
+    # 
+    #       cond_uniq_sites %>%
+    #         as.data.frame(row.names = NULL) %>%
+    #         dplyr::filter(timepoint != "d0", patient %in% std_clin_patients) %>%
+    #         dplyr::group_by(patient, gene_id_wo_annot) %>%
+    #         dplyr::summarise(max_est = max(estAbund), max_rel = max(relAbund)) %>%
+    #         dplyr::group_by(patient) %>%
+    #         dplyr::mutate(
+    #           ord = sample.int(n = n(), size = n(), replace = FALSE)
+    #         ) %>%
+    #         dplyr::filter(
+    #           ord <= gene_cnts_by_pat_rel_tp$gene_cnt[
+    #             match(unique(patient), gene_cnts_by_pat_rel_tp$patient)
+    #           ]
+    #         ) %>%
+    #         dplyr::group_by(gene_id_wo_annot) %>%
+    #         dplyr::summarise(n_pats = n_distinct(patient)) %>%
+    #         dplyr::ungroup() %>%
+    #         dplyr::arrange(desc(n_pats)) %>%
+    #         dplyr::filter(n_pats >= min_pats) %>%
+    #         dplyr::group_by(n_pats) %>%
+    #         dplyr::summarise(cnt = n())
+    # 
+    #     }),
+    #     .id = "permute"
+    #   ) %>%
+    #   dplyr::mutate(
+    #     permute = factor(permute),
+    #     n_pats = factor(n_pats)
+    #   ) %>%
+    #   tidyr::complete(permute, n_pats, fill = list(cnt = 0)) %>%
+    #   dplyr::mutate(
+    #     n_pats = as.numeric(as.character(n_pats))
+    #   )
+    
+    permute_data_est_tp <- dplyr::bind_rows(
+        lapply(seq_len(permute_cnt), function(i){
+        
+          cond_uniq_sites %>%
+            as.data.frame(row.names = NULL) %>%
+            dplyr::filter(timepoint != "d0", patient %in% std_clin_patients) %>%
+            dplyr::group_by(patient, gene_id_wo_annot) %>%
+            dplyr::summarise(max_est = max(estAbund), max_rel = max(relAbund)) %>% 
+            dplyr::group_by(patient) %>%
+            dplyr::mutate(
+              ord = sample.int(n = n(), size = n(), replace = FALSE)
+            ) %>%
+            dplyr::filter(
+              ord <= gene_cnts_by_pat_est_tp$gene_cnt[
+                match(unique(patient), gene_cnts_by_pat_est_tp$patient)
+              ]
+            ) %>%
+            dplyr::group_by(gene_id_wo_annot) %>% 
+            dplyr::summarise(n_pats = n_distinct(patient)) %>%
+            dplyr::ungroup() %>% 
+            dplyr::arrange(desc(n_pats)) %>% 
+            dplyr::filter(n_pats >= min_pats) %>%
+            dplyr::group_by(n_pats) %>%
+            dplyr::summarise(cnt = n())
+      
+        }),
+        .id = "permute"
+      ) %>%
+      dplyr::mutate(
+        permute = factor(permute),
+        n_pats = factor(n_pats)
+      ) %>%
+      tidyr::complete(permute, n_pats, fill = list(cnt = 0)) %>%
+      dplyr::mutate(
+        n_pats = as.numeric(as.character(n_pats))
+      )
+    
+    ## From permutation data, generate probability densities of overlaps ----
+    # permute_rel_tp_densities <- split(
+    #     permute_data_rel_tp$cnt, permute_data_rel_tp$n_pats
+    #   ) %>%
+    #   lapply(density)
+    
+    permute_est_tp_densities <- split(
+        permute_data_est_tp$cnt, permute_data_est_tp$n_pats
+      ) %>%
+      lapply(density)
+    
+    ## Generate summary data.frames ----
+    # summary_top_gene_cnts_rel_tp <- top_genes_rel_tp %>%
+    #   dplyr::group_by(n_pats) %>%
+    #   dplyr::summarise(cnt = n()) %>%
+    #   dplyr::mutate(
+    #     p.value = mapply(
+    #       function(cnt, pats){
+    #         if( pats %in% names(permute_rel_tp_densities) ){
+    #           
+    #           idx <- match(
+    #             cnt, round(permute_rel_tp_densities[[as.character(pats)]]$x)
+    #           )
+    #           
+    #           if( is.na(idx) ){
+    #             idx <- length(permute_rel_tp_densities[[as.character(pats)]]$x)
+    #           }
+    #           
+    #           return(with(
+    #             permute_rel_tp_densities[[as.character(pats)]], 
+    #             1 - sum(y[seq_len(idx)] * rep(diff(x)[1], idx))
+    #           ))
+    #           
+    #         }else{
+    #           return(NA)
+    #         }
+    #       },
+    #       cnt = cnt,
+    #       pats = n_pats
+    #     )
+    #   )
+    
+    summary_top_gene_cnts_est_tp <- top_genes_est_tp %>%
+      dplyr::group_by(n_pats) %>%
+      dplyr::summarise(cnt = n()) %>%
+      dplyr::mutate(
+        p.value = mapply(
+          function(cnt, pats){
+            if( pats %in% names(permute_est_tp_densities) ){
+              
+              idx <- match(
+                cnt, round(permute_est_tp_densities[[as.character(pats)]]$x)
+              )
+              
+              if( is.na(idx) ){
+                idx <- length(permute_est_tp_densities[[as.character(pats)]]$x)
+              }
+              
+              return(with(
+                permute_est_tp_densities[[as.character(pats)]], 
+                1 - sum(y[seq_len(idx)] * rep(diff(x)[1], idx))
+              ))
+              
+            }else{
+              return(NA)
+            }
+          },
+          cnt = cnt,
+          pats = n_pats
+        )
+      )
+    
+    # permute_gene_summary_rel_tp <- permute_data_rel_tp %>%
+    #   dplyr::group_by(n_pats) %>%
+    #   dplyr::summarise(
+    #     mean = mean(cnt), 
+    #     sd = sd(cnt),
+    #     norm.test = shapiro.test(cnt)$p.value
+    #   )
+
+    permute_gene_summary_est_tp <- permute_data_est_tp %>%
+      dplyr::group_by(n_pats) %>%
+      dplyr::summarise(
+        mean = mean(cnt), 
+        sd = sd(cnt),
+        norm.test = shapiro.test(cnt)$p.value
+      )
+    
+    # permute_count_summary_rel_tp <- dplyr::left_join(
+    #     summary_top_gene_cnts_rel_tp, permute_gene_summary_rel_tp, by = "n_pats"
+    #   ) %>%
+    #   dplyr::mutate(
+    #     p.value = ifelse(is.na(p.value), 0, p.value),
+    #     cnt_log = log10(cnt),
+    #     mean_log = log10(mean),
+    #     max_mean_log = log10(mean + sd),
+    #     min_mean_log = ifelse(mean - sd < 0, -2, log10(mean - sd))
+    #   )
+    
+    permute_count_summary_est_tp <- dplyr::left_join(
+        summary_top_gene_cnts_est_tp, permute_gene_summary_est_tp, by = "n_pats"
+      ) %>%
+      dplyr::mutate(
+        p.value = ifelse(is.na(p.value), 0, p.value),
+        cnt_log = log10(cnt),
+        mean_log = log10(mean),
+        max_mean_log = log10(mean + sd),
+        min_mean_log = ifelse(mean - sd < 0, -2, log10(mean - sd))
+      )
+    
+    ## Timepoint plots ----
+    # rel_tp_summary_plot <- ggplot() +
+    #   geom_linerange(
+    #     data = permute_count_summary_rel_tp,
+    #     aes(x = n_pats, ymin = min_mean_log, ymax = max_mean_log)
+    #   ) +
+    #   geom_point(
+    #     data = {
+    #       permute_count_summary_rel_tp %>%
+    #         dplyr::select(n_pats, cnt_log, mean_log) %>%
+    #         tidyr::gather(key = "data", value = "cnt_log", -n_pats) %>%
+    #         dplyr::mutate(
+    #           data = ifelse(data == "cnt_log", "Patient", "Permutation"),
+    #           data = factor(data, levels = c("Permutation", "Patient"))
+    #         )
+    #     },
+    #     aes(x = n_pats, y = cnt_log, fill = data),
+    #     color = "black", shape = 21, size = 3
+    #   ) + 
+    #   scale_x_continuous(
+    #     breaks = seq(min_pats, max(summary_top_gene_cnts_rel_tp$n_pats), 1)
+    #   ) +
+    #   geom_text(
+    #     data = permute_count_summary_rel_tp,
+    #     aes(x = n_pats, y = cnt_log, label = ifelse(p.value <= 0.05, "*", " ")), 
+    #     size = 8, color = "black", nudge_y = 0.05, nudge_x = 0.05
+    #   ) +
+    #   scale_fill_brewer(palette = "Set1") +
+    #   scale_y_continuous(
+    #     breaks = c(-1, 0, 1, 2), 
+    #     labels = c(bquote(10^-1), bquote(10^0), bquote(10^1), bquote(10^2))
+    #   ) +
+    #   coord_cartesian(ylim = c(-1, 2.5)) +
+    #   labs(
+    #     title = "Patient Samples - Rel. Abund.",
+    #     x = "Number of patients transcription\nunits were shared across", 
+    #     y = "Number of transcription units shared",
+    #     fill = "Data Type"
+    #   ) +
+    #   custom_theme +
+    #   theme(
+    #     legend.position = c(0.8, 0.75),
+    #     axis.line = element_line(color = "black")
+    #   )
+    
+    est_tp_summary_plot <- ggplot() +
+      geom_linerange(
+        data = permute_count_summary_est_tp,
+        aes(x = n_pats, ymin = min_mean_log, ymax = max_mean_log)
+      ) +
+      geom_point(
+        data = {
+          permute_count_summary_est_tp %>%
+            dplyr::select(n_pats, cnt_log, mean_log) %>%
+            tidyr::gather(key = "data", value = "cnt_log", -n_pats) %>%
+            dplyr::mutate(
+              data = ifelse(data == "cnt_log", "Patient", "Permutation"),
+              data = factor(data, levels = c("Permutation", "Patient"))
+            )
+        },
+        aes(x = n_pats, y = cnt_log, fill = data),
+        color = "black", shape = 21, size = 3
+      ) + 
+      scale_x_continuous(
+        breaks = seq(min_pats, max(summary_top_gene_cnts_est_tp$n_pats), 1)
+      ) +
+      geom_text(
+        data = permute_count_summary_est_tp,
+        aes(x = n_pats, y = cnt_log, label = ifelse(p.value <= 0.05, "*", " ")), 
+        size = 8, color = "black", nudge_y = 0.05, nudge_x = 0.05
+      ) +
+      scale_fill_brewer(palette = "Set1") +
+      scale_y_continuous(
+        breaks = c(-1, 0, 1, 2), 
+        labels = c(bquote(10^-1), bquote(10^0), bquote(10^1), bquote(10^2))
+      ) +
+      coord_cartesian(ylim = c(-1, 2.5)) +
+      labs(
+        title = "Patient Samples - Est. Abund.",
+        x = "Number of patients transcription\nunits were shared across", 
+        y = "Number of transcription units shared",
+        fill = "Data Type"
+      ) +
+      custom_theme +
+      theme(
+        legend.position = c(0.8, 0.75),
+        axis.line = element_line(color = "black")
+      )
+    
+    # Analysis of infusion products ----
+    # gene_cnts_by_pat_rel_tdn <- cond_uniq_sites %>% 
+    #   as.data.frame(row.names = NULL) %>% 
+    #   dplyr::filter(timepoint == "d0", patient %in% std_clin_patients) %>% 
+    #   dplyr::group_by(patient, posid, gene_id_wo_annot) %>% 
+    #   dplyr::summarise(max_est = max(estAbund), max_rel = max(relAbund)) %>% 
+    #   dplyr::group_by(patient) %>% 
+    #   dplyr::filter(max_rel >= quantile(max_rel, probs = 1 - pct)) %>%
+    #   dplyr::summarise(gene_cnt = n_distinct(gene_id_wo_annot))
+    # 
+    # gene_cnts_by_pat_est_tdn <- cond_uniq_sites %>% 
+    #   as.data.frame(row.names = NULL) %>% 
+    #   dplyr::filter(timepoint == "d0", patient %in% std_clin_patients) %>% 
+    #   dplyr::group_by(patient, posid, gene_id_wo_annot) %>% 
+    #   dplyr::summarise(max_est = max(estAbund), max_rel = max(relAbund)) %>% 
+    #   dplyr::group_by(patient) %>% 
+    #   dplyr::filter(max_est >= quantile(max_est, probs = 1 - pct)) %>%
+    #   dplyr::summarise(gene_cnt = n_distinct(gene_id_wo_annot))
+    # 
+    # top_genes_rel_tdn <- cond_uniq_sites %>% 
+    #   as.data.frame(row.names = NULL) %>% 
+    #   dplyr::filter(timepoint == "d0", patient %in% std_clin_patients) %>% 
+    #   dplyr::group_by(patient, posid, gene_id_wo_annot) %>% 
+    #   dplyr::summarise(max_est = max(estAbund), max_rel = max(relAbund)) %>% 
+    #   dplyr::group_by(patient) %>% 
+    #   dplyr::filter(max_rel >= quantile(max_rel, probs = 1 - pct)) %>% 
+    #   dplyr::group_by(gene_id_wo_annot) %>% 
+    #   dplyr::summarise(
+    #     n_pats = n_distinct(patient), n_clones = n_distinct(patient, posid)
+    #   ) %>% 
+    #   dplyr::ungroup() %>% 
+    #   dplyr::arrange(desc(n_pats)) %>% 
+    #   dplyr::filter(n_pats >= min_pats)
+    # 
+    # top_genes_est_tdn <- cond_uniq_sites %>% 
+    #   as.data.frame(row.names = NULL) %>% 
+    #   dplyr::filter(timepoint == "d0", patient %in% std_clin_patients) %>% 
+    #   dplyr::group_by(patient, posid, gene_id_wo_annot) %>% 
+    #   dplyr::summarise(max_est = max(estAbund), max_rel = max(relAbund)) %>% 
+    #   dplyr::group_by(patient) %>% 
+    #   dplyr::filter(max_est >= quantile(max_est, probs = 1 - pct)) %>% 
+    #   dplyr::group_by(gene_id_wo_annot) %>% 
+    #   dplyr::summarise(
+    #     n_pats = n_distinct(patient), n_clones = n_distinct(patient, posid)
+    #   ) %>% 
+    #   dplyr::ungroup() %>% 
+    #   dplyr::arrange(desc(n_pats)) %>% 
+    #   dplyr::filter(n_pats >= min_pats)
+    # 
+    # ## Generate random sampling data ----
+    # ## and identify the number of genes overlapping
+    # permute_data_rel_tdn <- dplyr::bind_rows(
+    #     lapply(seq_len(permute_cnt), function(i){
+    #     
+    #       cond_uniq_sites %>%
+    #         as.data.frame(row.names = NULL) %>%
+    #         dplyr::filter(timepoint == "d0", patient %in% std_clin_patients) %>%
+    #         dplyr::group_by(patient, gene_id_wo_annot) %>%
+    #         dplyr::summarise(max_est = max(estAbund), max_rel = max(relAbund)) %>% 
+    #         dplyr::group_by(patient) %>%
+    #         dplyr::mutate(
+    #           ord = sample.int(n = n(), size = n(), replace = FALSE)
+    #         ) %>%
+    #         dplyr::filter(
+    #           ord <= gene_cnts_by_pat_rel_tdn$gene_cnt[
+    #             match(unique(patient), gene_cnts_by_pat_rel_tdn$patient)
+    #           ]
+    #         ) %>%
+    #         dplyr::group_by(gene_id_wo_annot) %>% 
+    #         dplyr::summarise(n_pats = n_distinct(patient)) %>%
+    #         dplyr::ungroup() %>% 
+    #         dplyr::arrange(desc(n_pats)) %>% 
+    #         dplyr::filter(n_pats >= min_pats) %>%
+    #         dplyr::group_by(n_pats) %>%
+    #         dplyr::summarise(cnt = n())
+    #   
+    #     }),
+    #     .id = "permute"
+    #   ) %>%
+    #   dplyr::mutate(
+    #     permute = factor(permute),
+    #     n_pats = factor(n_pats)
+    #   ) %>%
+    #   tidyr::complete(permute, n_pats, fill = list(cnt = 0)) %>%
+    #   dplyr::mutate(
+    #     n_pats = as.numeric(as.character(n_pats))
+    #   )
+    # 
+    # permute_data_est_tdn <- dplyr::bind_rows(
+    #     lapply(seq_len(permute_cnt), function(i){
+    #     
+    #       cond_uniq_sites %>%
+    #         as.data.frame(row.names = NULL) %>%
+    #         dplyr::filter(timepoint == "d0", patient %in% std_clin_patients) %>%
+    #         dplyr::group_by(patient, gene_id_wo_annot) %>%
+    #         dplyr::summarise(max_est = max(estAbund), max_rel = max(relAbund)) %>% 
+    #         dplyr::group_by(patient) %>%
+    #         dplyr::mutate(
+    #           ord = sample.int(n = n(), size = n(), replace = FALSE)
+    #         ) %>%
+    #         dplyr::filter(
+    #           ord <= gene_cnts_by_pat_est_tdn$gene_cnt[
+    #             match(unique(patient), gene_cnts_by_pat_est_tdn$patient)
+    #           ]
+    #         ) %>%
+    #         dplyr::group_by(gene_id_wo_annot) %>% 
+    #         dplyr::summarise(n_pats = n_distinct(patient)) %>%
+    #         dplyr::ungroup() %>% 
+    #         dplyr::arrange(desc(n_pats)) %>% 
+    #         dplyr::filter(n_pats >= min_pats) %>%
+    #         dplyr::group_by(n_pats) %>%
+    #         dplyr::summarise(cnt = n())
+    #   
+    #     }),
+    #     .id = "permute"
+    #   ) %>%
+    #   dplyr::mutate(
+    #     permute = factor(permute),
+    #     n_pats = factor(n_pats)
+    #   ) %>%
+    #   tidyr::complete(permute, n_pats, fill = list(cnt = 0)) %>%
+    #   dplyr::mutate(
+    #     n_pats = as.numeric(as.character(n_pats))
+    #   )
+    # 
+    # ## From permutation data, generate probability densities of overlaps ----
+    # permute_rel_tdn_densities <- split(
+    #     permute_data_rel_tdn$cnt, permute_data_rel_tdn$n_pats
+    #   ) %>%
+    #   lapply(density)
+    # 
+    # permute_est_tdn_densities <- split(
+    #     permute_data_est_tdn$cnt, permute_data_est_tdn$n_pats
+    #   ) %>%
+    #   lapply(density)
+    # 
+    # ## Generate summary data.frames ----
+    # summary_top_gene_cnts_rel_tdn <- top_genes_rel_tdn %>%
+    #   dplyr::group_by(n_pats) %>%
+    #   dplyr::summarise(cnt = n()) %>%
+    #   dplyr::mutate(
+    #     p.value = mapply(
+    #       function(cnt, pats){
+    #         if( pats %in% names(permute_rel_tdn_densities) ){
+    #           
+    #           idx <- match(
+    #             cnt, round(permute_rel_tdn_densities[[as.character(pats)]]$x)
+    #           )
+    #           
+    #           if( is.na(idx) ){
+    #             idx <- length(permute_rel_tdn_densities[[as.character(pats)]]$x)
+    #           }
+    #           
+    #           return(with(
+    #             permute_rel_tdn_densities[[as.character(pats)]], 
+    #             1 - sum(y[seq_len(idx)] * rep(diff(x)[1], idx))
+    #           ))
+    #           
+    #         }else{
+    #           return(NA)
+    #         }
+    #       },
+    #       cnt = cnt,
+    #       pats = n_pats
+    #     )
+    #   )
+    # 
+    # summary_top_gene_cnts_est_tdn <- top_genes_est_tdn %>%
+    #   dplyr::group_by(n_pats) %>%
+    #   dplyr::summarise(cnt = n()) %>%
+    #   dplyr::mutate(
+    #     p.value = mapply(
+    #       function(cnt, pats){
+    #         if( pats %in% names(permute_est_tdn_densities) ){
+    #           
+    #           idx <- match(
+    #             cnt, round(permute_est_tdn_densities[[as.character(pats)]]$x)
+    #           )
+    #           
+    #           if( is.na(idx) ){
+    #             idx <- length(permute_est_tdn_densities[[as.character(pats)]]$x)
+    #           }
+    #           
+    #           return(with(
+    #             permute_est_tdn_densities[[as.character(pats)]], 
+    #             1 - sum(y[seq_len(idx)] * rep(diff(x)[1], idx))
+    #           ))
+    #           
+    #         }else{
+    #           return(NA)
+    #         }
+    #       },
+    #       cnt = cnt,
+    #       pats = n_pats
+    #     )
+    #   )
+    # 
+    # permute_gene_summary_rel_tdn <- permute_data_rel_tdn %>%
+    #   dplyr::group_by(n_pats) %>%
+    #   dplyr::summarise(
+    #     mean = mean(cnt), 
+    #     sd = sd(cnt),
+    #     norm.test = shapiro.test(cnt)$p.value
+    #   )
+    # 
+    # permute_gene_summary_est_tdn <- permute_data_est_tdn %>%
+    #   dplyr::group_by(n_pats) %>%
+    #   dplyr::summarise(
+    #     mean = mean(cnt), 
+    #     sd = sd(cnt),
+    #     norm.test = shapiro.test(cnt)$p.value
+    #   )
+    # 
+    # permute_count_summary_rel_tdn <- dplyr::left_join(
+    #     summary_top_gene_cnts_rel_tdn, 
+    #     permute_gene_summary_rel_tdn, 
+    #     by = "n_pats"
+    #   ) %>%
+    #   dplyr::mutate(
+    #     p.value = ifelse(is.na(p.value), 0, p.value),
+    #     cnt_log = log10(cnt),
+    #     mean_log = log10(mean),
+    #     max_mean_log = log10(mean + sd),
+    #     min_mean_log = ifelse(mean - sd < 0, -2, log10(mean - sd))
+    #   )
+    # 
+    # permute_count_summary_est_tdn <- dplyr::left_join(
+    #     summary_top_gene_cnts_est_tdn, 
+    #     permute_gene_summary_est_tdn, 
+    #     by = "n_pats"
+    #   ) %>%
+    #   dplyr::mutate(
+    #     p.value = ifelse(is.na(p.value), 0, p.value),
+    #     cnt_log = log10(cnt),
+    #     mean_log = log10(mean),
+    #     max_mean_log = log10(mean + sd),
+    #     min_mean_log = ifelse(mean - sd < 0, -2, log10(mean - sd))
+    #   )
+    # 
+    # ## Infusion product plots ----
+    # rel_tdn_summary_plot <- ggplot() +
+    #   geom_linerange(
+    #     data = permute_count_summary_rel_tdn,
+    #     aes(x = n_pats, ymin = min_mean_log, ymax = max_mean_log)
+    #   ) +
+    #   geom_point(
+    #     data = {
+    #       permute_count_summary_rel_tdn %>%
+    #         dplyr::select(n_pats, cnt_log, mean_log) %>%
+    #         tidyr::gather(key = "data", value = "cnt_log", -n_pats) %>%
+    #         dplyr::mutate(
+    #           data = ifelse(data == "cnt_log", "Patient", "Permutation"),
+    #           data = factor(data, levels = c("Permutation", "Patient"))
+    #         )
+    #     },
+    #     aes(x = n_pats, y = cnt_log, fill = data),
+    #     color = "black", shape = 21, size = 3
+    #   ) + 
+    #   scale_x_continuous(breaks = scales::pretty_breaks()) +
+    #   geom_text(
+    #     data = permute_count_summary_rel_tdn,
+    #     aes(x = n_pats, y = cnt_log, label = ifelse(p.value <= 0.05, "*", " ")), 
+    #     size = 8, color = "black", nudge_y = 0.05, nudge_x = 0.05
+    #   ) +
+    #   scale_fill_brewer(palette = "Set1") +
+    #   scale_y_continuous(
+    #     breaks = c(-1, 0, 1, 2, 3), 
+    #     labels = c(
+    #       bquote(10^-1), bquote(10^0), bquote(10^1), bquote(10^2), bquote(10^3)
+    #     )
+    #   ) +
+    #   coord_cartesian(ylim = c(-1, 3)) +
+    #   labs(
+    #     title = "Infusion Products - Rel. Abund.",
+    #     x = "Number of patients transcription\nunits were shared across", 
+    #     y = "Number of transcription units shared",
+    #     fill = "Data Type"
+    #   ) +
+    #   custom_theme +
+    #   theme(
+    #     legend.position = c(0.8, 0.75),
+    #     axis.line = element_line(color = "black")
+    #   )
+    # 
+    # est_tdn_summary_plot <- ggplot() +
+    #   geom_linerange(
+    #     data = permute_count_summary_est_tdn,
+    #     aes(x = n_pats, ymin = min_mean_log, ymax = max_mean_log)
+    #   ) +
+    #   geom_point(
+    #     data = {
+    #       permute_count_summary_est_tdn %>%
+    #         dplyr::select(n_pats, cnt_log, mean_log) %>%
+    #         tidyr::gather(key = "data", value = "cnt_log", -n_pats) %>%
+    #         dplyr::mutate(
+    #           data = ifelse(data == "cnt_log", "Patient", "Permutation"),
+    #           data = factor(data, levels = c("Permutation", "Patient"))
+    #         )
+    #     },
+    #     aes(x = n_pats, y = cnt_log, fill = data),
+    #     color = "black", shape = 21, size = 3
+    #   ) + 
+    #   scale_x_continuous(breaks = scales::pretty_breaks()) +
+    #   geom_text(
+    #     data = permute_count_summary_est_tdn,
+    #     aes(x = n_pats, y = cnt_log, label = ifelse(p.value <= 0.05, "*", " ")), 
+    #     size = 8, color = "black", nudge_y = 0.05, nudge_x = 0.05
+    #   ) +
+    #   scale_fill_brewer(palette = "Set1") +
+    #   scale_y_continuous(
+    #     breaks = c(-1, 0, 1, 2, 3), 
+    #     labels = c(
+    #       bquote(10^-1), bquote(10^0), bquote(10^1), bquote(10^2), bquote(10^3)
+    #     )
+    #   ) +
+    #   coord_cartesian(ylim = c(-1, 3)) +
+    #   labs(
+    #     title = "Infusion Products - Est. Abund.",
+    #     x = "Number of patients transcription\nunits were shared across", 
+    #     y = "Number of transcription units shared",
+    #     fill = "Data Type"
+    #   ) +
+    #   custom_theme +
+    #   theme(
+    #     legend.position = c(0.8, 0.75),
+    #     axis.line = element_line(color = "black")
+    #   )
+    
+  }
+)
+
+#high_abund_freq_plots <- list(
+#  freq_clonal_exp$rel_tp_summary_plot,
+#  freq_clonal_exp$est_tp_summary_plot,
+#  freq_clonal_exp$rel_tdn_summary_plot,
+#  freq_clonal_exp$est_tdn_summary_plot
+#)
+
+#grid.arrange(grobs = high_abund_freq_plots, nrow = 2)
+
+freq_clonal_exp$est_tp_summary_plot +
+  labs(title = NULL)
+```
+Figure S3. Integration sites in cells undergoing clonal expansion are found recurrently in specific host genes across multiple patients. We sought to test the possibility that the same clones expanded in abundance in multiple CART19 patients.  To assess this, we first selected the top 5% most abundant clones from each patient (based on SonicAbundance). We then plotted how often the genes marked by integration were found in the top 5% most abundant clones in other patients.  In the figure, the number of patients sharing an expanded clone is shown on the x-axis, and the y-axis shows the number of clones shared overall for the given number of patients sharing clones. For example, a total of 18 genes (y-axis) were shared across 7 patients (x-axis). To analyze the background of sharing expected by chance (taking account of differential integration frequency in different transcription units), we sampled a random 5% of genes from each patient, and repeated the overlap calculation. This was repeated 1000 times, and the resulting permutation background plotted (red dots). Error bars indicate Standard Deviation.  Thus the observed sharing is far greater than that expected by chance as reported by the permutation background. Specific genes detected are as follows: Observed across 7 patients: `r freq_clonal_exp$top_genes_est_tp %>% dplyr::filter(n_pats == 7) %$% paste(gene_id_wo_annot, collapse = ", ")`. Observed across 8 patients: `r freq_clonal_exp$top_genes_est_tp %>% dplyr::filter(n_pats == 8) %$% paste(gene_id_wo_annot, collapse = ", ")`. Observed across 9 patients: `r freq_clonal_exp$top_genes_est_tp %>% dplyr::filter(n_pats == 9) %$% paste(gene_id_wo_annot, collapse = ", ")`. Clones within genes `r freq_clonal_exp$top_genes_est_tp %>% dplyr::filter(n_pats > 9) %>% dplyr::arrange(n_pats) %$% paste(gene_id_wo_annot, collapse = " and ")` were observed across 11 and 12 patients, respectively.
+
+\newpage
+## Supplemental Figure 4. GO and KEGG enriched groups by gene selection criteria
+```{r sup_fig_S04, fig.width=9, fig.height=6}
+go_kegg_heatmaps <- within(
+  list(), {
+
+    # Filter down terms (GO and KEGG) that will be relavent to the analysis
+    num_terms <- 20
+    select_GOBP_list <- all_GOBP_list[
+      lengths(all_GOBP_list) >= 10 & lengths(all_GOBP_list) <= 1000]
+    select_go_terms <- data.frame(
+        id = names(select_GOBP_list), 
+        size = lengths(select_GOBP_list)) %>%
+      dplyr::group_by(id) %>%
+      dplyr::mutate(term = Term(GOTERM[[id]])) %>%
+      dplyr::ungroup() %>%
+      dplyr::filter(
+        !grepl("placenta", term),
+        !grepl("^negative", term),
+        !grepl("^positive", term),
+        !grepl("embryo", term),
+        !grepl("estrous", term),
+        !grepl("eating", term),
+        !grepl("reproductive", term),
+        !grepl("radiation", term),
+        !grepl("development", term),
+        !grepl("to heat", term),
+        !grepl("response", term), 
+        !grepl("organization", term),
+        !grepl("assembly", term),
+        !grepl("migration", term))
+    
+    select_GOBP_list <- select_GOBP_list[select_go_terms$id]
+    
+    
+    rel_kegg_terms <- k_path %>%
+      tolower() %>%
+      grep("virus", x = ., invert = TRUE, value = TRUE) %>%
+      grep("viral", x = ., invert = TRUE, value = TRUE) %>%
+      grep("addiction", x = ., invert = TRUE, value = TRUE) %>%
+      grep("metabol", x = ., invert = TRUE, value = TRUE) %>%
+      grep("myopathy", x = ., invert = TRUE, value = TRUE) %>%
+      grep("multiple species", x = ., invert = TRUE, value = TRUE)
+   
+    rel_kegg_terms <- rel_kegg_terms[
+      grepl("signaling", rel_kegg_terms) | 
+        grepl("differentiation", rel_kegg_terms) |
+        grepl("proteolysis", rel_kegg_terms) |
+        grepl("ptosis", rel_kegg_terms) |
+        grepl("micrornas", rel_kegg_terms) |
+        grepl("some", rel_kegg_terms) |
+        grepl("cycle", rel_kegg_terms)]
+    
+    rel_kegg_terms <- names(rel_kegg_terms)
+
+    # Import GOI report data and environment
+    goi_analysis <- read.csv(
+        file.path(
+          outputDir, 
+          grep("_cart19_goi_data.csv", list.files(outputDir), value = TRUE)
+        )
+      ) %>%
+      dplyr::mutate(Gene_Name = gsub("'", "", Gene_Name)) 
+
+    # GOI potential genes and analysis ----   
+    potential_genes <- apply(
+      as.matrix(goi_analysis[
+        ,c("Depletion", "Enrichment", "Abundance", "Longitudinal")]), 
+      2, function(x){
+             goi_analysis$Gene_Name[x]
+           })
+    
+    composite_genes <- unique(unlist(
+      potential_genes[c("Enrichment", "Abundance", "Longitudinal")]
+    ))
+
+    criteria_order <- c(
+      "Depletion", "Enrichment", "Abundance", "Longitudinal"
+    )
+    
+    composite_go <- fisher_hyper_GO_test(
+      gene_list = composite_genes, GO_list = select_GOBP_list, odds = FALSE, 
+      p_adjust = "BH", lower_tail = FALSE, filter = TRUE, cores = numCores)
+    
+    select_GOBP_list <- select_GOBP_list[composite_go$GO_ID]
+    
+    composite_kegg <- fisher_hyper_KEGG_test(
+      gene_list = composite_genes, KEGG_list = k_pathList[rel_kegg_terms], 
+      odds = FALSE, p_adjust = "BH", lower_tail = FALSE, filter = FALSE, 
+      cores = numCores)
+
+    go_term <- lapply(potential_genes, function(x){
+      fisher_hyper_GO_test(
+        x, select_GOBP_list, odds = FALSE, 
+        p_adjust = 'BH', lower_tail = FALSE, cutoff = 1) 
+      })
+    
+    kegg_term <- lapply(potential_genes, function(x){
+      fisher_hyper_KEGG_test(
+        x, k_pathList[rel_kegg_terms], odds = FALSE, 
+        p_adjust = 'BH', lower_tail = FALSE, cutoff = 1)
+    })
+
+    go_list_df <- bind_rows(go_term, .id = "Criteria") %>%
+      dplyr::select(Criteria, GO_ID, GO_Term, overlap_size, adj.p.value)
+    
+    kegg_list_df <- bind_rows(kegg_term, .id = "Criteria") %>%
+      dplyr::select(Criteria, path_id, KEGG_Term, overlap_size, adj.p.value)
+
+    go_matrix <- sapply(potential_genes, function(x){
+     sapply(select_GOBP_list, function(y){ sum(x %in% y) / length(y) }) })
+    
+    go_matrix <- go_matrix[composite_go$GO_ID,]
+        
+    kegg_matrix <- sapply(potential_genes, function(x){
+     sapply(k_pathList, function(y){ sum(x %in% y) / length(y) }) })
+    
+    kegg_matrix <- kegg_matrix[composite_kegg$path_id,]
+    
+    # top x terms
+    top_go_terms <- rownames(go_matrix)[seq_len(num_terms)]
+    top_kegg_terms <- rownames(kegg_matrix)[seq_len(num_terms)]
+    
+    top_go_df <- data.frame(
+        term = top_go_terms,
+        size = lengths(select_GOBP_list[top_go_terms]),
+        ovlp = sapply(select_GOBP_list[top_go_terms], function(x){
+          sum(composite_genes %in% x) }), 
+        adj.p.value = composite_go$adj.p.value[match(
+          top_go_terms, composite_go$GO_ID)],
+        clus = as.vector(cluster_by_list_similarity(
+          keys = top_go_terms, keyList = select_GOBP_list[top_go_terms]))) %>%
+      dplyr::arrange(clus, desc(ovlp), adj.p.value)
+    
+    top_kegg_df <- data.frame(
+        term = top_kegg_terms,
+        size = lengths(k_pathList[top_kegg_terms]),
+        ovlp = sapply(k_pathList[top_kegg_terms], function(x){
+          sum(composite_genes %in% x) }), 
+        adj.p.value = composite_kegg$adj.p.value[match(
+          top_kegg_terms, composite_kegg$path_id)],
+        clus = as.vector(cluster_by_list_similarity(
+          keys = top_kegg_terms, keyList = k_pathList[top_kegg_terms]))) %>%
+      dplyr::arrange(clus, desc(ovlp), adj.p.value)
+    
+    go_heatmap_data <- as.data.frame(go_matrix[top_go_df$term,]) %>%
+      dplyr::mutate(
+        GO_ID = row.names(.),
+        GO_Term = go_list_df$GO_Term[match(GO_ID, go_list_df$GO_ID)],
+        f_GO_term = stringr::str_extract(GO_Term, "[\\w\\s-,]{40}"),
+        f_GO_term = ifelse(is.na(f_GO_term), GO_Term, paste0(f_GO_term, "...")),
+        f_GO_term = factor(f_GO_term, levels = rev(unique(f_GO_term)))) %>%
+      tidyr::gather(
+        key = "Criteria", value = "Proportion", 
+        -GO_ID, -GO_Term, -f_GO_term) %>%
+      left_join(
+        dplyr::select(go_list_df, -GO_Term), 
+        by = c("GO_ID", "Criteria")) %>%
+      dplyr::mutate(
+        Proportion = ifelse(Proportion == 0, NA, Proportion),
+        Criteria = factor(Criteria, levels = criteria_order),
+        Sig = ifelse(
+          !is.na(adj.p.value), ifelse(adj.p.value <= 0.05, "*", " "), " ")) %>%
+      dplyr::mutate(section = ifelse(Criteria == "Depletion", 1, 2))
+    
+    kegg_heatmap_data <- as.data.frame(kegg_matrix[top_kegg_df$term,]) %>%
+      dplyr::mutate(
+        path_id = row.names(.),
+        KEGG_Term = kegg_list_df$KEGG_Term[
+          match(path_id, kegg_list_df$path_id)],
+        KEGG_Term = stringr::str_remove(
+          KEGG_Term, fixed(" - Homo sapiens (human)")),
+        f_KEGG_term = stringr::str_extract(KEGG_Term, "[\\w\\s-,]{40}"),
+        f_KEGG_term = ifelse(
+          is.na(f_KEGG_term), KEGG_Term, paste0(f_KEGG_term, "...")),
+        f_KEGG_term = factor(
+          f_KEGG_term, levels = rev(unique(f_KEGG_term)))) %>%
+      tidyr::gather(
+        key = "Criteria", value = "Proportion", 
+        -path_id, -KEGG_Term, -f_KEGG_term) %>%
+      left_join(
+        dplyr::select(kegg_list_df, -KEGG_Term), 
+        by = c("path_id", "Criteria")) %>%
+      dplyr::mutate(
+        Proportion = ifelse(Proportion == 0, NA, Proportion),
+        Criteria = factor(Criteria, levels = criteria_order),
+        Sig = ifelse(
+          !is.na(adj.p.value), ifelse(adj.p.value <= 0.05, "*", " "), " ")) %>%
+      dplyr::mutate(section = ifelse(Criteria == "Depletion", 1, 2))
+
+    go_heatmap <- go_heatmap_data %>%
+        ggplot(aes(x = Criteria, y = f_GO_term)) +
+        geom_tile(aes(fill = Proportion)) +
+        geom_text(aes(label = Sig)) +
+        facet_grid(. ~ section, scales = "free", space = "free") +  
+        scale_fill_distiller(
+          type = "seq", palette = "Blues", direction = 1, na.value = "white",
+          breaks = c(0, 0.05, 0.1)) +
+        scale_y_discrete(position = "right") +
+        scale_x_discrete(position = "top") + 
+        labs(y = NULL, fill = "Term Proportion") +
+        guides(fill = guide_colorbar(
+          title.position = "top", label.position = "bottom")) +
+        theme(
+          panel.background = element_blank(),
+          axis.text.x.top = element_text(angle = 90, vjust = 0.5, hjust = 0),
+          legend.position = "bottom",
+          axis.title = element_text(color = "black", face = "bold"),
+          legend.title = element_text(color = "black", face = "bold"),
+          axis.text = element_text(color = "black"),
+          strip.placement = "outside",
+          strip.background = element_blank(),
+          strip.text = element_blank(),
+          aspect.ratio = length(unique(go_heatmap_data$GO_ID)) /
+            nrow(dplyr::distinct(go_heatmap_data, Criteria)))
+    
+      kegg_heatmap <- kegg_heatmap_data %>%
+        ggplot(aes(x = Criteria, y = f_KEGG_term)) +
+        geom_tile(aes(fill = Proportion)) +
+        geom_text(aes(label = Sig)) +
+        facet_grid(. ~ section, scales = "free", space = "free") +  
+        scale_fill_distiller(
+          type = "seq", palette = "Greens", direction = 1, na.value = "white",
+          breaks = c(0, 0.05, 0.1)) +
+        scale_y_discrete(position = "right") +
+        scale_x_discrete(position = "top") + 
+        labs(y = NULL, fill = "Term Proportion") +
+        guides(fill = guide_colorbar(
+          title.position = "top", label.position = "bottom")) +
+        theme(
+          panel.background = element_blank(),
+          axis.text.x.top = element_text(angle = 90, vjust = 0.5, hjust = 0),
+          legend.position = "bottom",
+          axis.title = element_text(color = "black", face = "bold"),
+          legend.title = element_text(color = "black", face = "bold"),
+          axis.text = element_text(color = "black"),
+          strip.placement = "outside",
+          strip.background = element_blank(),
+          strip.text = element_blank(),
+          aspect.ratio = length(unique(kegg_heatmap_data$path_id)) /
+            nrow(dplyr::distinct(kegg_heatmap_data, Criteria)))
+      
+  }
+)
+
+grid.arrange(
+  grobs = list(
+    go_kegg_heatmaps$go_heatmap, 
+    go_kegg_heatmaps$kegg_heatmap), 
+  nrow = 1
+)
+```
+Figure S4. Gene ontology analysis of genes called as influencing T cell proliferation. Heatmaps indicating the proportion of each gene ontology term (A) or KEGG pathway (B). The four criteria for calling genes were each analyzed separately (columns). Asterisks indicate significant enrichment for the term over random distributions (Fisher's exact test based on noncentral hypergeometic distributions).
+
+\newpage
+## Supplemental Figure 5. Comparing clonal diversity by TCR and VIS
+```{r sup_fig_S05, fig.width=5, fig.height=3}
+tcr_summary <- within(
+  list(), {
+
+    ## Load data TCR and IgH data into list environment for analysis.
+    data_files <- list.files(outputDir)
+    file_specimen <- grep("specimen_data", data_files, value = TRUE)
+    file_specimen_data <- grep("specimen_summary", data_files, value = TRUE)
+    file_tcr_igh_data <- grep(
+      "tcr_igh_sample_data", data_files, value = TRUE
+    )
+
+    specimen_data <- read.csv(file.path(outputDir, file_specimen_data)) %>%
+      dplyr::select(
+        patient, disease, response, clin_trial, simple_response, general_response,
+        determinant_response, celltype, timepoint, specimen, 
+        "is.richness" = numUniqSites, "is.shannon" = ShannonIndex, 
+        "is.gini" = GiniIndex, "is.chao" = Chao1, "is.uc50" = UC50
+      ) %>%
+      dplyr::mutate(
+        celltype = factor(celltype, levels = celltypeLevels),
+        timepoint = factor(timepoint, levels = timepointLevels),
+        is.richness = as.numeric(is.richness),
+        is.shannon = as.numeric(is.shannon),
+        is.gini = as.numeric(is.gini),
+        is.chao = as.numeric(is.chao),
+        is.uc50 = as.numeric(is.uc50)
+      )
+    
+    full_tcr_data <- read.csv(file.path(outputDir, file_tcr_igh_data)) %>%
+      dplyr::select(
+        patient, celltype, timepoint, locus, sample_name, 
+        "tcr.shannon" = shannon, "tcr.gini" = gini, "tcr.uc50" = uc50
+      ) %>%
+      dplyr::mutate(
+        celltype = factor(celltype, levels = celltypeLevels),
+        timepoint = factor(timepoint, levels = timepointLevels),
+        tcr.shannon = as.numeric(tcr.shannon),
+        tcr.gini = as.numeric(tcr.gini),
+        tcr.uc50 = as.numeric(tcr.uc50)
+      ) %>%
+      dplyr::filter(!is.na(celltype) & !is.na(timepoint), locus == "TCRB") %>%
+      dplyr::mutate(is.car.pos = ifelse(
+        as.character(timepoint) == "d0", grepl("CAR+", celltype), TRUE
+      )) %>%
+      dplyr::filter(is.car.pos)
+
+    ## Annotate which specimens have matching intsite data
+    specimen_coerce <- dplyr::select(specimen_data, patient, timepoint) %>% 
+      dplyr::mutate(timepoint = as.character(timepoint)) %>%
+      dplyr::distinct()
+    
+    tcr_coerce <- dplyr::select(full_tcr_data, patient, timepoint) %>%
+      dplyr::mutate(
+        patient = as.character(patient),
+        timepoint = as.character(timepoint)
+      ) %>%
+      dplyr::distinct()
+    
+    tcr_is_intersect <- dplyr::intersect(specimen_coerce, tcr_coerce)
+    
+    is_data <- specimen_data %>%
+      dplyr::select(
+        patient, celltype, timepoint, is.shannon, is.gini, is.uc50
+      ) %>%
+      dplyr::filter(
+        patient %in% tcr_is_intersect$patient & 
+          timepoint %in% tcr_is_intersect$timepoint
+      ) %>%
+      tidyr::gather(
+        key = "metric", value = "value", -patient, -celltype, -timepoint
+      )
+    
+    tcr_data <- full_tcr_data %>%
+      dplyr::select(
+        patient, celltype, timepoint, tcr.shannon, tcr.gini, tcr.uc50
+      ) %>%
+      dplyr::filter(
+        patient %in% tcr_is_intersect$patient & 
+          timepoint %in% tcr_is_intersect$timepoint
+      ) %>%
+      tidyr::gather(
+        key = "metric", value = "value", -patient, -celltype, -timepoint
+      )
+    
+    # Combine tcr and is data
+    metadata <- dplyr::bind_rows(is_data, tcr_data) %>%
+      dplyr::group_by(patient, celltype, timepoint, metric) %>%
+      dplyr::summarise(value = mean(value)) %>%
+      dplyr::ungroup() %>%
+      tidyr::spread(key = "metric", value = "value") %>%
+      dplyr::arrange(patient, timepoint, celltype) %>%
+      dplyr::group_by(patient, timepoint) %>%
+      dplyr::mutate(
+        is.gini = max(is.gini, na.rm = TRUE),
+        is.shannon = max(is.shannon, na.rm = TRUE),
+        is.uc50 = max(is.uc50, na.rm = TRUE),
+        rel.timepoint = ifelse(
+          timepoint == "d0", "Infusion Product", "Post-Therapy"
+        ),
+        rel.timepoint = factor(
+          rel.timepoint, levels = c("Infusion Product", "Post-Therapy")
+        ),
+        rel.celltype = stringr::str_extract(as.character(celltype), "[\\w]+"),
+        rel.celltype = ifelse(rel.celltype == "BMMC", "BM", rel.celltype),
+        rel.celltype = ifelse(rel.celltype == "PBMC", "PBL", rel.celltype),
+        rel.celltype = ifelse(rel.celltype == "PB", "PBL", rel.celltype),
+        rel.celltype = ifelse(rel.celltype == "Tcells", "Tcells*", rel.celltype),
+        rel.celltype = factor(rel.celltype, levels = c("Tcells*", "PBL", "BM"))
+      ) %>%
+      dplyr::filter(
+        !is.na(tcr.gini) | !is.na(tcr.shannon) | !is.na(tcr.uc50),
+        is.gini >= 0 & is.shannon >= 0 & is.uc50 >= 0,
+        !grepl("CAR-", celltype)
+      ) %>%
+      dplyr::group_by(rel.celltype, rel.timepoint) %>%
+      dplyr::filter(n() > 1, rel.celltype == "Tcells*") %>%
+      dplyr::ungroup() %>%
+      dplyr::arrange(rel.timepoint, rel.celltype) %>%
+      dplyr::left_join(
+        dplyr::distinct(specimen_data, patient, disease, determinant_response),
+        by = "patient"
+      ) %>%
+      dplyr::mutate(
+        determinant_response = factor(
+          determinant_response, levels = c("PR_NR", "CR_PRtd")
+        ),
+        disease = factor(disease, levels = c("CLL", "aALL", "pALL"))
+      )
+
+    shannon_correlations <- metadata %>%
+      split(., paste0(.$rel.celltype, " - ", .$rel.timepoint)) %>%
+      lapply(function(x){
+        y <- summary(lm(is.shannon ~ tcr.shannon, data = x))
+        z <- cor.test(~ is.shannon + tcr.shannon, data = x, method = "spearman")
+        
+        if( nrow(x) > 1 ){
+          return(data.frame(
+            obs = nrow(x), m = y$coefficients[2], b = y$coefficients[1],
+            mse = y$coefficients[4], bse = y$coefficients[3],
+            adj.r.squared = y$adj.r.squared,
+            p.value = pf(
+              y$fstatistic["value"], y$fstatistic["numdf"], 
+              y$fstatistic["dendf"], lower.tail = FALSE
+            ),
+            p.value.sp = z$p.value, 
+            rho.sp = z$estimate
+          ))
+        }else{
+          return(data.frame(
+            obs = nrow(x), m = NA, b = NA, mse = NA, bse = NA, 
+            adj.r.squared = NA, p.value = NA, p.value.sp = NA, rho.sp = NA
+          ))
+        }
+      }) %>%
+      dplyr::bind_rows(.id = "grouping") %>%
+      tidyr::separate(
+        col = grouping, 
+        into = c("rel.celltype", "rel.timepoint"), 
+        sep = " - "
+      ) %>%
+      dplyr::mutate(
+        rel.celltype = factor(rel.celltype, levels = c("Tcells*", "PBL", "BM")),
+        rel.timepoint = factor(
+          rel.timepoint, levels = c(c("Infusion Product", "Post-Therapy"))
+        ),
+        r.squared.x = 1,
+        r.squared.y = c(2, 7.5),
+        r.squared.fmt = ifelse(
+          is.na(adj.r.squared), 
+          "", 
+          paste0("R^2 = ", format(round(adj.r.squared, digits = 3)))
+        ),
+        # r.squared.fmt = ifelse(
+        #   p.value <= 0.05, paste0(r.squared.fmt, "*"), r.squared.fmt
+        # ),
+        p.value.fmt = paste0(
+          "p-value = ", format(round(p.value.sp, digits = 3))
+        ),
+        annot = paste0(r.squared.fmt, "\n", p.value.fmt)
+      ) %>%
+      dplyr::filter(obs > 1)
+
+    # gini_correlations <- metadata %>%
+    #   split(., paste0(.$rel.celltype, " - ", .$rel.timepoint)) %>%
+    #   lapply(function(x){
+    #     y <- summary(lm(is.gini ~ tcr.gini, data = x))
+    #     z <- cor.test(~ is.gini + tcr.gini, data = x, method = "spearman")
+    # 
+    #     if( nrow(x) > 1 ){
+    #       return(data.frame(
+    #         obs = nrow(x), m = y$coefficients[2], b = y$coefficients[1],
+    #         mse = y$coefficients[4], bse = y$coefficients[3],
+    #         adj.r.squared = y$adj.r.squared,
+    #         p.value = pf(
+    #           y$fstatistic["value"], y$fstatistic["numdf"], 
+    #           y$fstatistic["dendf"], lower.tail = FALSE
+    #         ),
+    #         p.value.sp = z$p.value, 
+    #         rho.sp = z$estimate
+    #       ))
+    #     }else{
+    #       return(data.frame(
+    #         obs = nrow(x), m = NA, b = NA, mse = NA, bse = NA, 
+    #         adj.r.squared = NA, p.value = NA, p.value.sp = NA, rho.sp = NA
+    #       ))
+    #       
+    #     }
+    #   }) %>%
+    #   dplyr::bind_rows(.id = "grouping") %>%
+    #   tidyr::separate(
+    #     col = grouping, 
+    #     into = c("rel.celltype", "rel.timepoint"), 
+    #     sep = " - "
+    #   ) %>%
+    #   dplyr::mutate(
+    #     rel.celltype = factor(rel.celltype, levels = c("Tcells*", "PBL", "BM")),
+    #     rel.timepoint = factor(
+    #       rel.timepoint, levels = c(c("Infusion Product", "Post-Therapy"))
+    #     ),
+    #     r.squared.x = 0.4,
+    #     r.squared.y = 0.75,
+    #     r.squared.fmt = ifelse(
+    #       is.na(adj.r.squared), 
+    #       "", 
+    #       paste0("R^2 = ", format(round(adj.r.squared, digits = 3)))
+    #     ),
+    #     r.squared.fmt = ifelse(
+    #       p.value <= 0.05, paste0(r.squared.fmt, "*"), r.squared.fmt
+    #     )
+    #   ) %>%
+    #   dplyr::filter(obs > 1)
+
+    shannon_plot <- ggplot() +
+      geom_abline(
+        data = shannon_correlations,
+        aes(slope = m, intercept = b), 
+        color = "grey50", alpha = 0.5, show.legend = FALSE
+      ) +
+      geom_point(
+        data = metadata,
+        aes(
+          x = tcr.shannon, y = is.shannon, 
+          fill = factor(determinant_response), shape = disease
+        ),
+        color = "black", stroke = 0.25, size = 2,
+        show.legend = FALSE
+      ) + 
+      geom_text(
+        data = shannon_correlations,
+        aes(x = r.squared.x, y = r.squared.y, label = annot),
+        hjust = 0, size = 3, parse = FALSE
+      ) +
+      scale_fill_brewer(palette = "Set1") +
+      scale_y_continuous(
+        breaks = c(0, 2, 4, 6, 8), 
+        labels = c("0.0", "2.0", "4.0", "6.0", "8.0")
+      ) +
+      scale_shape_manual(values = c(21, 24, 25)) +
+      facet_grid(. ~ rel.timepoint) +
+      labs(
+        x = "TCR Shannon Diversity", 
+        y = "VIS Shannon Diversity"
+      ) +
+      custom_theme + 
+      theme(
+        panel.background = element_rect(color = "black")
+      )
+    
+    # gini_plot <- ggplot() +
+    #   geom_abline(
+    #     data = gini_correlations,
+    #     aes(slope = m, intercept = b), 
+    #     color = "grey50", alpha = 0.5, show.legend = FALSE
+    #   ) +
+    #   geom_point(
+    #     data = metadata,
+    #     aes(
+    #       x = tcr.gini, y = is.gini, 
+    #       fill = determinant_response, shape = disease
+    #     ),
+    #     color = "black", stroke = 0.25, size = 2,
+    #     show.legend = FALSE
+    #   ) + 
+    #   geom_text(
+    #     data = gini_correlations,
+    #     aes(x = r.squared.x, y = r.squared.y, label = r.squared.fmt),
+    #     hjust = 0, size = 3
+    #   ) +
+    #   scale_fill_brewer(palette = "Set1") +
+    #   scale_y_continuous(
+    #     breaks = c(0, 0.2, 0.4, 0.6, 0.8), 
+    #     labels = c("0.0", "0.2", "0.4", "0.6", "0.8")
+    #   ) +
+    #   scale_shape_manual(values = c(21, 24, 25)) +
+    #   facet_grid(. ~ rel.timepoint + rel.celltype) +
+    #   labs(
+    #     x = "TCR Gini Index", 
+    #     y = "VIS Gini Index"
+    #   ) +
+    #   custom_theme + 
+    #   theme(
+    #     panel.background = element_rect(color = "black")
+    #   )
+    
+    metadata_cor <- metadata %>%
+      dplyr::group_by(rel.celltype, rel.timepoint) %>%
+      dplyr::summarise(
+        cnt = n(),
+        shannon.cor = cor(is.shannon, tcr.shannon),
+        gini.cor = cor(is.gini, tcr.gini)
+      )
+
+    shannon_cor_tbl <- metadata_cor %>%
+      dplyr::filter(cnt > 1) %>%
+      dplyr::mutate(
+        shannon.fmt = paste0(
+          format(round(shannon.cor, digits = 3)), " (", cnt, ")"
+        )
+      ) %>%
+      dplyr::select(rel.celltype, rel.timepoint, shannon.fmt) %>%
+      tidyr::spread(key = rel.celltype, value = shannon.fmt, fill = "NA")
+
+    # gini_cor_tbl <- metadata_cor %>%
+    #   dplyr::filter(cnt > 1) %>%
+    #   dplyr::mutate(
+    #     gini.fmt = paste0(
+    #       format(round(gini.cor, digits = 3)), " (", cnt, ")"
+    #     )
+    #   ) %>%
+    #   dplyr::select(rel.celltype, rel.timepoint, gini.fmt) %>%
+    #   tidyr::spread(key = rel.celltype, value = gini.fmt, fill = "NA")
+    
+  }
+)
+
+tcr_summary$shannon_plot
+
+#knitr::kable(
+#    x = tcr_summary$shannon_cor_tbl, 
+#    format = "latex", booktabs = TRUE
+#  ) %>%
+#  kableExtra::kable_styling(latex_options = "hold_position")
+
+```
+Figure S5. Comparing clonal diversity between TCR-beta sequencing results from CART19 sorted T-cells and vector integration sites from peripheral blood (measured by Shannon Index). P-values were determined from the Spearman correlation. Blue points indicate data from CR/PRtd patients, red points indicate data from PR/NR patients. Circles represent patients with CLL, triangles represent patients with ALL (upward pointing, Adult ALL; downward pointing, Pediatric ALL).  All TCR-beta sequencing data was collected from CAR+ sorted T-cells. T cell subsets analyzed included CD3+, CART19+, and in some cases CD4+-sorted or CD8+-sorted.
+
+\newpage
+## Supplemental Figure 6. Model optimization based on vector integration sites from infusion products or day 28 samples
+```{r sup_fig_S06, fig.height=3.5, fig.width=7}
+model_analysis <- within(
+  model_analysis, {
+    # TDN Model cross-validation
+    lambda_plot_tdn <- plot_lasso(cv_tdn_pca, minOnly = TRUE) +
+      labs(title = "Transduction Product Model") +
+      theme(plot.title = element_text(size = 10, face = "bold"))
+    
+    lambda_plot_mod_tdn <- plot_lasso_mod(
+        cv_tdn_pca, custom_breaks = c(21, 20, 19, 17, 15, 4), minOnly = TRUE) +
+      theme(plot.title = element_text(size = 10, face = "bold"))
+    
+    # D28 Model cross-validation
+    lambda_plot_d28 <- plot_lasso(cv_d28_pca, minOnly = TRUE) +
+      labs(title = "Day 28 Sample Model") +
+      theme(plot.title = element_text(size = 10, face = "bold"))
+    
+    lambda_plot_mod_d28 <- plot_lasso_mod(
+        cv_d28_pca, custom_breaks = c(0, 5, 9, 15, 16), minOnly = TRUE) +
+      theme(plot.title = element_text(size = 10, face = "bold"))
+})
+
+grid.arrange(
+  grobs = list(
+    model_analysis$lambda_plot_tdn, model_analysis$lambda_plot_d28), 
+  nrow = 1)
+```
+Figure S6. Model optimization based on vector integration sites from infusion products or day 28 samples. A total of 91 features (Table S6) spanning population metrics, genomic features, and epigenetic features from 29 patients were used in least absolute shrinkage and selection operator (LASSO) logistic regression to build a classification model. Results from leave-one-out cross-validation of models based on transduction/pre-infusion products (A) and day 28 peripheral blood samples (B). The top horizontal numbers indicate the number of principal components used in the classification model, while the x-axis indicates the lambda constant used for tuning the model, and the y-axis shows misclassification error. Error bars indicated standard error. The minimum value of misclassification is indicated to the right of the plots.   
+
+\newpage
+## Supplemental Figure 7. Central Memory T-cell proportions within Infusion Products
+```{r sup_fig_S07, fig.height=3, fig.width=5}
+add_investigations$mem_subsets_plot
+```
+Figure S7. Central Memory T-cell proportions within Infusion Products. Proportion of central memory T-cells are shown for infusion products of CLL and ALL patients. Central Memory T-cells frequencies were identified at apheresis by the following markers: CD8+, CCR7+, and CD45RO+. Mean and standard error of the associated data are shown. No significant difference was identified between response groups within ALL or CLL as determined by a two-tailed T-test.  
+
+\newpage
+## Supplemental Figure 8. Disease specific analysis of integration site profiles
+```{r sup_fig_S08, fig.height=6, fig.width=5}
+add_investigations$disease_lasso_contrib_plot
+```
+Figure S8. Disease specific analysis of integration site profiles. A LASSO regression was used to identify variables within integration site profiles that would separate CLL and ALL patients. Analysis was performed on infusion products, and the percent contribution to the overall variance between the groups is displayed for values greater than 1%.
+
+\newpage
+## Supplemental Tables
+
+### Supplemental Table S1. Patient Information.
+Table S1. Patient metadata and results of integration site sequencing. 
+
+```{r sup_tab_S1}
 patient_sites_data <- all_sites %>%
   as.data.frame(row.names = NULL) %>%
   dplyr::mutate(posid = generate_posid(all_sites)) %>%
@@ -3346,13 +5433,42 @@ write.csv(
   row.names = FALSE
 )
 
+knitr::kable(
+    x = sup_tbl_s1, 
+    format = "latex", booktabs = TRUE, longtable = TRUE
+  ) %>%
+  kableExtra::kable_styling(
+    latex_options = c("hold_position", "repeat_header")
+  ) %>%
+  kableExtra::landscape()
+
+
 ```
 
-## Table S2. Specimen / Sample Information
+\newpage
+### Supplemental Table S2. Summary of patient ages in the CLL and ALL cohorts.
+Table S2. Summary of patient ages in the CLL and ALL cohorts. We did not observe a significant correlation between age and clinical reponse within disease groups.
+```{r sup_tbl_s2}
+add_investigations$tdn_metrics %>% 
+  dplyr::select(disease = rel_disease, age = Age_at_CAR_Tcell_Infusion) %>% 
+  dplyr::group_by(disease) %>% 
+  dplyr::summarise(
+    mean = mean(age), median = median(age), sd = sd(age), se = sd / sqrt(n()), 
+    min = min(age), max = max(age), n = n()
+  ) %>% 
+  dplyr::rename(
+    "Disease" = disease, "Mean" = mean, "Median" = median, "Std. Dev." = sd, 
+    "Std. Err." = se, "Minimum" = min, "Maximum" = max, "Count" = n
+  ) %>%
+  kable(format = "latex", booktabs = TRUE, digits = 1, align = "c") %>%
+  kableExtra::kable_styling(latex_options = "hold_position")
+```
 
-Written to file: /path/to/CART19_intsite_manuscript_analysis/data/sup_tbl_2_specimen_info.csv
+\newpage
+### Supplemental Table S3. Patient DNA samples analyzed by integration site sequencing.
+Table S3. Table of specimens analyzed by vector integration site analysis.
 
-```{r spec_table}
+```{r sup_tbl_S3}
 specimen_sites_data <- all_sites %>%
   as.data.frame(row.names = NULL) %>%
   dplyr::mutate(posid = generate_posid(all_sites)) %>%
@@ -3366,7 +5482,7 @@ specimen_sites_data <- all_sites %>%
   ) %>%
   dplyr::ungroup()
 
-sup_tbl_s2 <- summaries$specimen %>%
+sup_tbl_s3 <- summaries$specimen %>%
   dplyr::select(specimen, patient, celltype, timepoint) %>%
   dplyr::filter(patient %in% sup_tbl_s1$`Patient ID`) %>%
   dplyr::arrange(specimen) %>%
@@ -3388,12 +5504,387 @@ sup_tbl_s2 <- summaries$specimen %>%
   )
   
 write.csv(
-  x = sup_tbl_s2, 
-  file = file.path(outputDir, "sup_tbl_2_specimen_info.csv"),
+  x = sup_tbl_s3, 
+  file = file.path(outputDir, "sup_tbl_3_specimen_info.csv"),
   quote = TRUE, 
   row.names = FALSE
 )
 
+knitr::kable(
+    x = sup_tbl_s3, 
+    format = "latex", booktabs = TRUE, longtable = TRUE
+  ) %>%
+  kableExtra::kable_styling(
+    latex_options = c("hold_position", "repeat_header")
+  ) %>%
+  kableExtra::landscape()
+
+```
+
+\newpage
+### Supplemental Table S4. Cancer-associated gene lists.
+Table S4. Gene sets used for analysis, including cancer associated genes, human lymphoid cancer genes, and genes associated with clonal hematopoiesis, and overlaps between lists. Origins of gene lists are as follows: Bushman Lab allOnco List: (Sadelain et al., 2011, http://www.bushmanlab.org/links/genelists); Lymphoid cancer list: (personal communication, Marina Cavazzana, http://www.bushmanlab.org/links/genelists);  COSMIC: (Sondka, Z. et al. 2018 Nature Cancer Reviews), TCGA_Xie and Clonal_Hema_Xie (Xie, M. et al. 2014 Nature Medicine).
+
+```{r sup_tbl_S4}
+# Overlap table ----
+print_mat <- ifelse(
+  upper.tri(add_investigations$ovlpmat_gene_lists, diag = TRUE), 
+  "", 
+  format(add_investigations$ovlpmat_gene_lists, big.mark = ",")
+)
+
+rownames(print_mat) <- rownames(add_investigations$ovlpmat_gene_lists)
+colnames(print_mat) <- add_investigations$shrt_list_names
+
+print_df <- print_mat %>%
+  as.data.frame() %>%
+  dplyr::mutate(
+    List = row.names(.),
+    Size = sapply(add_investigations$reference_gene_lists, length)
+  ) %>%
+  dplyr::select(List, Size, everything(), -`Clonal Hema.`) %>%
+  dplyr::mutate(
+    PMID = c(
+      "22129804", 
+      "26590405",
+      "personal corr.", 
+      "30293088", 
+      "25326804", 
+      "25326804" 
+    )
+  )
+
+print_df %>% 
+  kable(
+    format = "latex", booktabs = TRUE, align = c("l", rep("c", 7))
+  ) %>%
+  kableExtra::kable_styling(latex_options = c("hold_position", "scale_down"))
+```
+
+\newpage
+### Supplmental Table S5. Statistical analysis of overlaps among genes called at integration sites and cancer associated gene lists.
+Table S5. Statistical analysis of overlaps among genes called at integration sites and cancer associated gene lists in Table S4.
+
+```{r sup_tab_S5}
+# Enrichment within gene sets ----
+add_investigations$compare_wide_frame %>%
+  dplyr::rename("Criteria" = criteria, "Size" = size) %>%
+  kable(
+    format = "latex", booktabs = TRUE, align = c("l", "r", rep("c", 6))
+  ) %>%
+  kableExtra::kable_styling(latex_options = c("hold_position", "scale_down"))
+
+```
+
+\newpage
+### Supplemental Table S6. Table of model variables
+Table S6. 91 model variables used in the LASSO regression analysis.
+
+```{r sup_tbl_S6}
+sup_tbl_s6 <- read.csv(file.path(utilsDir, "feature_table.csv"))
+
+sup_tbl_s6 %>%
+  dplyr::select(
+    "Group" = `Metric.Group`, "Abbv." = `Metric.Abbreviation`,
+    "Description" = `Metric.Name...Description`,
+    "Size (Kb)" = `Window.size..Kb.`, Source
+  ) %>%
+  knitr::kable(
+    format = "latex", booktabs = TRUE, longtable = TRUE
+  ) %>%
+  kableExtra::kable_styling(
+    latex_options = c("hold_position", "repeat_header"), 
+    full_width = TRUE, 
+    font_size = 9
+  ) %>%
+  kableExtra::column_spec(3, width = "30em") %>%
+  kableExtra::landscape()
+
+```
+
+
+
+```{r ibru_predictions, eval=FALSE}
+#\newpage
+### Supplemental Table S4. Ibrutinib-based trial predictions
+#Table S4. Predictions for Ibrutinib-based CART19 trial based on vector integration site analysis of infusion products.
+
+ibru_analysis <- within(
+  model_analysis, {
+
+    ibru_data_set <- data.frame(
+        patient = ibru_tdn_specimens$patient, 
+        response = ibru_tdn_specimens$determinant_response,
+        disease = ibru_tdn_specimens$disease,
+        score = -predict(
+          cv_tdn_pca, ibru_trans[,seq_len(tdn_pca_cutoff)])[, 1, drop = TRUE]
+      ) %>%
+      dplyr::mutate(
+        pred = factor(
+          ifelse(score > 0, "Positive", "Negative"), 
+          levels = c("Positive", "Negative"))) %>%
+      dplyr::group_by(response, pred) %>%
+      dplyr::summarise(cnt = n()) %>%
+      tidyr::spread(response, cnt, fill = 0) %>%
+      dplyr::ungroup() %>%
+      dplyr::rename(" " = pred, "CR/PRtd" = CR_PRtd, "PR/NR" = PR_NR)
+    
+  }
+)
+
+knitr::kable(
+    x = ibru_analysis$ibru_data_set, 
+    format = "latex", booktabs = TRUE) %>%
+  kableExtra::kable_styling(latex_options = "hold_position") %>%
+  kableExtra::add_header_above(
+    header = c("Ibrutinib-trial Specimens" = 3)
+  )
+
+```
+
+```{r sup_fig_SX1, fig.width=3, fig.height=3.5, eval=FALSE}
+## Supplemental Figure 3. Integration enrichment of TET2 with and without expanded clone from patient 10
+
+tet2_resp <- within(
+  list(), {
+    freq_rank <- dplyr::filter(
+        gene_impact, 
+        TP_num_patients >= 2,
+        TP_num_sites >= 10,
+        freq_diff > 0) %>%
+      dplyr::arrange(desc(pct_chg)) %>%
+      dplyr::mutate(id = seq_len(n())) %>%
+      dplyr::group_by(id) %>%
+      dplyr::mutate(fisher_test = {
+        test <- fisher.test(
+          matrix(
+            c(TP_num_sites, total_pat_sites - TP_num_sites,
+              TDN_num_sites, total_tdn_sites - TDN_num_sites), 
+            ncol = 2))
+        paste(
+          c(test$p.value, test$estimate, as.numeric(test$conf.int)), 
+          collapse = ":") }) %>%
+      dplyr::ungroup() %>%
+      tidyr::separate(
+        col = fisher_test, 
+        into = c("freq_fisher_pval", "freq_odds_ratio", 
+                 "freq_conf_low", "freq_conf_high"), 
+        sep = fixed(":"), remove = TRUE, convert = TRUE) %>%
+      dplyr::mutate(adj_freq_test = p.adjust(freq_fisher_pval, method = "BH")) %>%
+      dplyr::arrange(freq_fisher_pval) %>%
+      dplyr::mutate(id = seq_len(n()))
+    
+    freq_rank_wo_TET2_clone <- dplyr::filter(
+        gene_impact, 
+        TP_num_patients >= 2,
+        TP_num_sites >= 10,
+        freq_diff > 0) %>%
+      dplyr::arrange(desc(pct_chg)) %>%
+      dplyr::mutate(
+        TP_num_sites = ifelse(
+          gene_name == "TET2", TP_num_sites - 1, TP_num_sites),
+        id = seq_len(n())) %>%
+      dplyr::group_by(id) %>%
+      dplyr::mutate(fisher_test = {
+        test <- fisher.test(
+          matrix(
+            c(TP_num_sites, total_pat_sites - TP_num_sites,
+              TDN_num_sites, total_tdn_sites - TDN_num_sites), 
+            ncol = 2))
+        paste(
+          c(test$p.value, test$estimate, as.numeric(test$conf.int)), 
+          collapse = ":") }) %>%
+      dplyr::ungroup() %>%
+      tidyr::separate(
+        col = fisher_test, 
+        into = c("freq_fisher_pval", "freq_odds_ratio", 
+                 "freq_conf_low", "freq_conf_high"), 
+        sep = fixed(":"), remove = TRUE, convert = TRUE) %>%
+      dplyr::mutate(adj_freq_test = p.adjust(freq_fisher_pval, method = "BH")) %>%
+      dplyr::arrange(freq_fisher_pval) %>%
+      dplyr::mutate(id = seq_len(n()))
+
+    TET2_labels <- bind_rows(
+        dplyr::filter(freq_rank, gene_name == "TET2"),
+        dplyr::filter(freq_rank_wo_TET2_clone, gene_name == "TET2") %>%
+          dplyr::mutate(gene_name = "TET2*"))
+    # 4.5"x4.5"
+    rank_order_plot <- freq_rank %>%
+      dplyr::filter(freq_fisher_pval <= 0.05) %>%
+      ggplot(aes(x = id, y = freq_odds_ratio)) +
+      geom_point(
+        aes(fill = freq_fisher_pval, size = TP_num_sites),
+        color = "white", shape = 21) +
+      geom_point(
+        data = TET2_labels, 
+        aes(fill = freq_fisher_pval, size = TP_num_sites), 
+        color = "red", shape = 21) +
+      geom_text_repel(
+        data = TET2_labels,
+        aes(label = gene_name), 
+        nudge_x = 5, nudge_y = 1.0, segment.alpha = 0.5, 
+        arrow = arrow(length = unit(0.05, "inches"))) +
+      scale_fill_continuous(low = "#56B1F7", high = "#132B43") +
+      guides(
+        size = guide_legend(
+          override.aes = list(color = "white", fill = "black"))) +
+      labs(
+        x = "Rank Order", 
+        y = "Odds Ratio", 
+        fill = "P-value", 
+        size = "Identified\nClones") +
+      custom_theme +
+      theme(
+        axis.line = element_line(color = "black"),
+        legend.position = "right",
+        legend.direction = "vertical", legend.box = "vertical")
+    
+    # 3"x3.5"
+    tet2_resp_plot <- TET2_labels %>%
+      dplyr::mutate(gene_name = ifelse(
+        gene_name == "TET2", 
+        "TET2\nwith\npatient 10", "TET2\nwithout\npatient 10")) %>%
+      ggplot(aes(x = gene_name, y = freq_odds_ratio)) +
+      geom_bar(stat = "identity", fill = "grey75", color = "black") +
+      geom_point() +
+      geom_linerange(aes(ymin = freq_conf_low, ymax = freq_conf_high)) +
+      geom_hline(yintercept = 1.0, linetype = "dotted") +
+      geom_hline(yintercept = 0.0) +
+      labs(x = NULL, y = "Odds Ratio") +
+      custom_theme +
+      theme(
+        axis.line.y = element_line(color = "black", size = 0.5),
+        axis.line.x = element_blank(), 
+        axis.ticks.x = element_blank())
+  }
+)
+
+tet2_resp$tet2_resp_plot
+
+#Figure S3. Enrichment of integration sites in the TET2 locus including (left) or not including (right) the expanded clone in patient 10, which is described in (12).  The dotted line indicates no enrichment. Error bars indicate 95% confidence intervals.
+
+```
+
+```{r sup_fig_SX2, fig.width=9, fig.height=3, out.width="80%", eval=FALSE}
+## Supplemental Figure X. TET2 Clone behavior
+#Figure S2. Longitudinal detection of clones harboring vector integration sites within the TET2 transcription unit. Relative abundance is determined by the proportion of sonic lengths measured for the specific clone compared to all other detected clones within the sample. Clones of repeated observations have their data points connected by a single line across time. Each clone is represented by a genomic coordinate, containing the sequence names (chr4, chromosome 4), the orientation of the integration, (+ / -, depending on the direction of the integrated vector with respect to the chromosomal indexing), and the nucleotide location on the chromosome.
+
+
+tet2_clones <- within(
+  list(), {
+    
+    tet2_sites <- cond_uniq_sites[subjectHits(GenomicRanges::findOverlaps(
+      refGenes[refGenes$name2 == "TET2"], cond_uniq_sites
+    ))]
+    
+    tet2_clone_data <- as.data.frame(tet2_sites, row.names = NULL) %>%
+      dplyr::select(
+        patient, timepoint, celltype, specimen, estAbund, relAbund, posid
+      ) %>%
+      dplyr::filter(celltype %in% c("PBL", "Tcells")) %>%
+      dplyr::mutate(
+        dtime = convert_time(as.character(timepoint)),
+        dtime = ifelse(dtime == 0, 7.5, dtime),
+        dtime = ifelse(dtime == 1, 8.5, dtime)
+      ) %>%
+      dplyr::group_by(patient, timepoint, dtime, celltype, posid) %>%
+      dplyr::summarise(
+        relAbund = max(relAbund),
+        estAbund = max(estAbund)
+      )
+    
+    clone_count_tbl <- tet2_clone_data %>%
+      dplyr::distinct(patient, celltype, timepoint, dtime, estAbund) %>%
+      dplyr::group_by(dtime, estAbund) %>%
+      dplyr::summarise(cnt = n()) %>%
+      dplyr::ungroup() %>%
+      dplyr::filter(cnt > 1)
+    
+    axis_breaks <- c(
+      7.5, 10, 14, 28, 60, 90, 120, 240, 365, 730, 1095, 1826
+    )
+    
+    axis_labels <- c(
+      "TDN", "d10", "d14", "d28", "m2", "m3", "m4", "m8", 
+      "y1", "y2", "y3", "y5"
+    )
+    
+    max_tp <- max(tet2_clone_data$dtime)
+    max_idx <- min(which(axis_breaks > max_tp))
+    max_idx <- max(c(max_idx, 5))
+    
+    axis_breaks <- axis_breaks[seq_len(max_idx)]
+    axis_labels <- axis_labels[seq_len(max_idx)]
+    
+    clone_palette <- structure(
+      colorRampPalette(RColorBrewer::brewer.pal(11, "Spectral"))(
+        n = length(unique(tet2_clone_data$posid))
+      ),
+      names = sort(unique(tet2_clone_data$posid))
+    )
+
+    plot <- ggplot(tet2_clone_data, aes(x = dtime, y = relAbund)) +
+      geom_line(aes(group = posid), alpha = 0.15) +
+      geom_point(aes(fill = posid), color = "black", shape = 21, size = 2.5) +
+      scale_fill_manual(values = clone_palette) +
+      scale_x_log10(
+        breaks = axis_breaks,
+        labels = axis_labels,
+        limits = c(7.5, max(tet2_clone_data$dtime))
+      ) + 
+      scale_y_log10(
+        breaks = c(0.001, 0.01, 0.1, 1),
+        labels = c(0.001, 0.01, 0.1, 1)
+      ) +
+      labs(
+        x = "Treatment Time", 
+        y = "Relative Abundance (Log-scale)", 
+        fill = "Position ID"
+      ) +
+      guides(
+        fill = guide_legend(
+          direction = "vertical",
+          keyheight = unit(0.27, units = "in"),
+          nrow = 8
+        )
+      ) +
+      custom_theme +
+      theme(
+        legend.position = "right",
+        legend.text = element_text(size = 7.5),
+        axis.line.y = element_line(color = "black"),
+        axis.line.x = element_line(color = "black"),
+        axis.text.x = element_text(size = 9),
+        strip.text.y = element_text(angle = 0)
+      )
+
+    #ggsave(
+    #    filename = "supfig.tet2_clones.long_plot.pdf", 
+    #    plot = plot, 
+    #    device = "pdf", 
+    #    path = file.path(workingDir, "reports/manuscript_figures"), 
+    #    width = 9, 
+    #    height = 3, 
+    #    units = "in"
+    #  )
+    
+  }
+)
+
+tet2_clones$plot
+
+```
+
+```{r sup_fig_SX3, fig.width = 5, fig.height=3, eval=FALSE}
+## Supplemental Figure 10. Sampling depth comparison between Infusion Products and Day 28 specimens
+
+#Figure S10. Sampling depth across infusion products and day 28 peripheral blood samples. Saturation was calculated using the number if identified clones normalized by the Chao1 estimated population size. There was a significant diffence in the sampling of infusion products between disease groups (p-value = 0.0283, two-sided Wilcoxon Rank Sum Test), but there was no significant difference between groups of day 28 sampling. 
+
+
+add_investigations$sampling_plot
+add_investigations$sampling_wilcox %>%
+  kable(format = "latex", booktabs = TRUE) %>%
+  kableExtra::kable_styling(latex_options = "hold_position")
 ```
 
 ```{r additional_calcs, eval=FALSE}
@@ -3544,145 +6035,5 @@ shifrut_comparison <- within(
 pander::pandoc.table(
   shifrut_comparison$stats_tbl, style = "simple", digits = 3, split.table = Inf
 )
-```
-
-## Supplementary Figures. Patient-specific Longitudinal Observation of Clones
-
-Written to file: /path/to/CART19_intsite_manuscript_analysis/reports/manuscript_figures/
-
-```{r longitudinal_clone_plots, eval=TRUE}
-long_clone_plots <- within(
-  list(), {
-    # Summarise each clones behavior
-    clone_data <- as.data.frame(cond_uniq_sites, row.names = NULL) %>%
-      dplyr::filter(patient %in% std_clin_patients) %>%
-      dplyr::select(
-        patient, timepoint, celltype, specimen, 
-        estAbund, relAbund, posid, gene_id
-      ) %>%
-      dplyr::mutate(dtime = convert_time(as.character(timepoint))) %>%
-      dplyr::group_by(patient, posid, gene_id) %>%
-      dplyr::summarise(
-        tfs = paste(sort(unique(as.integer(timepoint))), collapse = ","),
-        min_tf = min(as.integer(timepoint)), 
-        max_tf = max(as.integer(timepoint)),
-        tps = paste(sort(unique(dtime)), collapse = ","),
-        min_tp = min(dtime), max_tp = max(dtime),
-        num_tp = n_distinct(timepoint),
-        num_ct = n_distinct(celltype), num_sp = n_distinct(specimen),
-        min_ab = min(estAbund), max_ab = max(estAbund),
-        min_rb = min(relAbund), max_rb = max(relAbund)
-      ) %>%
-      dplyr::arrange(desc(num_tp), desc(max_ab), desc(min_ab)) %>%
-      dplyr::ungroup()
-    
-    # Isolate data for plot
-    plot_clones <- clone_data %>%
-      dplyr::group_by(patient) %>%
-      dplyr::arrange(desc(max_tp - min_tp), desc(max_rb)) %>%
-      dplyr::slice(1:10) %$%
-      unique(paste0(patient, ":", posid))
-
-    plot_data <- as.data.frame(cond_uniq_sites, row.names = NULL) %>%
-      dplyr::select(patient, timepoint, posid, gene_id, estAbund, relAbund) %>%
-      dplyr::filter(paste0(patient, ":", posid) %in% plot_clones) %>%
-      dplyr::mutate(
-        tp = convert_time(as.character(timepoint)),
-        tp = ifelse(tp == 0, 7.5, tp),
-        tp = ifelse(tp == 1, 8.5, tp),
-        pf = as.integer(
-          factor(paste0(patient, ":", posid), levels = rev(plot_clones)))
-      ) %>%
-      dplyr::group_by(patient, timepoint, tp, pf, posid, gene_id) %>%
-      dplyr::summarise(
-        logAbund = log(mean(estAbund), base = 10),
-        estAbund = mean(estAbund),
-        relAbund = mean(relAbund)
-      ) %>%
-      dplyr::group_by(patient, posid, gene_id) %>%
-      dplyr::mutate(num_tp = n_distinct(tp)) %>%
-      dplyr::ungroup() %>%
-      dplyr::group_by(num_tp) %>%
-      dplyr::mutate(pf = as.integer(factor(pf, levels = sort(unique(pf))))) %>%
-      dplyr::ungroup()
-
-    # Formated for 7"w by 3"h
-    split_plot_data <- split(plot_data, plot_data$patient)
-     
-    long_plots <- lapply(split_plot_data, function(df){
-      
-      df <- df %>%
-        dplyr::arrange(desc(estAbund)) %>%
-        dplyr::mutate(
-          patient = paste0("Patient: ", patient),
-          plot_id = paste0(gene_id, "\n", posid),
-          plot_id = factor(plot_id, levels = unique(plot_id))
-        )
-      
-      axis_breaks <- c(
-        7.5, 10, 14, 28, 60, 90, 120, 240, 365, 730, 1095, 1826
-      )
-      
-      axis_labels <- c(
-        "TDN", "d10", "d14", "d28", "m2", "m3", "m4", "m8", 
-        "y1", "y2", "y3", "y5"
-      )
-      
-      max_tp <- max(df$tp)
-      max_idx <- min(which(axis_breaks > max_tp))
-      max_idx <- max(c(max_idx, 5))
-      
-      axis_breaks <- axis_breaks[seq_len(max_idx)]
-      axis_labels <- axis_labels[seq_len(max_idx)]
-      
-      ggplot(df, aes(x = tp, y = relAbund)) +
-        geom_line(aes(group = plot_id), alpha = 0.15) +
-        geom_point(aes(color = plot_id), size = 2.5) +
-        facet_grid(. ~ patient) +
-        scale_color_brewer(type = "seq", palette = "Paired") +
-        scale_x_log10(
-          breaks = axis_breaks,
-          labels = axis_labels,
-          limits = c(7.5, max(df$tp))
-        ) + 
-        labs(
-          x = "Treatment Time", 
-          y = "Relative Abundance", 
-          color = NULL
-        ) +
-        guides(
-          color = guide_legend(
-            direction = "vertical",
-            keyheight = unit(0.27, units = "in"))
-        ) +
-        custom_theme +
-        theme(
-          legend.position = "right",
-          legend.text = element_text(size = 7.5),
-          axis.line.y = element_line(color = "black"),
-          axis.line.x = element_line(color = "black"),
-          axis.text.x = element_text(size = 9),
-          strip.text.y = element_text(angle = 0)
-        )
-      
-    })
-    
-    null <- lapply(seq_along(long_plots), function(i){
-      
-      file_pdf <- paste0("supfig.", names(long_plots)[i], ".long_plot.pdf")
-      
-      ggsave(
-        filename = file_pdf, 
-        plot = long_plots[[i]], 
-        device = "pdf", 
-        path = file.path(workingDir, "reports/manuscript_figures"), 
-        width = 7, 
-        height = 3, 
-        units = "in"
-      )
-      
-    })
-    
-})
 ```
 

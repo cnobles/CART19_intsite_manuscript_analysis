@@ -1,0 +1,17 @@
+\newpage
+## Longitudinal Observation
+
+```{r long_obs_tbl}
+kable(
+    head(df3.2, n = 50), format = "latex", booktabs = TRUE, 
+    caption = paste(
+      "Table of top", nrow(head(df3.2, n = 50)), 
+      "genes identified by longitudinal observations."), 
+    align = "c"
+  ) %>%
+  kableExtra::kable_styling(
+    latex_options = c("hold_position"),
+    font_size = 9
+  )
+```
+

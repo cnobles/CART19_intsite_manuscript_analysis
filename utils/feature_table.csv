@@ -1,0 +1,92 @@
+Metric Group,Metric Abbreviation,Metric Name / Description,Window size (Kb),Reference Celltype,Reference Genome,Source
+Population,numUniqSites,Unique Sites,NA,NA,hg38,Calculated
+Population,estAbund,Mean Estimated Abundance,NA,NA,hg38,Calculated
+Population,relAbund,Mean Relative Abundance,NA,NA,hg38,Calculated
+Population,ShannonIndex,Shannon Index,NA,NA,hg38,Calculated
+Population,GiniIndex,Gini Index,NA,NA,hg38,Calculated
+Population,Chao1,Chao 1 Estimate,NA,NA,hg38,Calculated
+Population,UC50,UC50  - Minimal number of unique clones making up 50% of the overall abundance,NA,NA,hg38,Calculated
+Population,clustersRepresented,Integration sites clusters represented within the specimens,NA,NA,hg38,Calculated
+Population,numSitesInClusters,Number of sites within clusters,NA,NA,hg38,Calculated
+Population,abundInClusters,Abundance of clones found within clusters,NA,NA,hg38,Calculated
+Genomic,pctTxnUnit,Percent of clones within Transcription Units,NA,NA,hg38,RefSeq-NCBI
+Genomic,pctSameOrt,Percent of clones in same orientation as gene transcription,NA,NA,hg38,RefSeq-NCBI
+Genomic,pctNearTxnUn,Percent of clones near transcription units,NA,NA,hg38,RefSeq-NCBI
+Genomic,pctInOnco,Percent clones within transcription units of onco-related genes,NA,NA,hg38,Bushman Lab
+Genomic,refSeq_counts.10k,RefSeq Genes within X window,10,NA,hg38,RefSeq-NCBI
+Genomic,refSeq_counts.100k,RefSeq Genes within X window,100,NA,hg38,RefSeq-NCBI
+Genomic,refSeq_counts.1M,RefSeq Genes within X window,1000,NA,hg38,RefSeq-NCBI
+Genomic,GC.100,GC Percent within X window ,0.1,NA,hg38,Calculated
+Genomic,GC.1k,GC Percent within X window ,1,NA,hg38,Calculated
+Genomic,GC.10k,GC Percent within X window ,10,NA,hg38,Calculated
+Genomic,GC.100k,GC Percent within X window ,100,NA,hg38,Calculated
+Genomic,GC.1M,GC Percent within X window ,1000,NA,hg38,Calculated
+Genomic,CpG_counts.1k,CpG counts within X window,1,NA,hg38,Calculated
+Genomic,CpG_counts.10k,CpG counts within X window,10,NA,hg38,Calculated
+Genomic,CpG_density.10k,CpG Density within X window,10,NA,hg38,Calculated
+Genomic,CpG_density.100k,CpG Density within X window,100,NA,hg38,Calculated
+Genomic,CpG_density.1M,CpG Density within X window,1000,NA,hg38,Calculated
+Genomic,DNaseI_count.1k,DNaseI counts within X window,1,NA,hg38,UCSC
+Genomic,DNaseI_count.10k,DNaseI counts within X window,10,NA,hg38,UCSC
+Genomic,DNaseI_count.100k,DNaseI counts within X window,100,NA,hg38,UCSC
+Genomic,DNaseI_count.1M,DNaseI counts within X window,1000,NA,hg38,UCSC
+Epigenetic,H2AK5ac.10k,H2AK5ac counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H2AK9ac.10k,H2AK9ac counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H2AZ.10k,H2AZ counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H2BK120ac.10k,H2BK120ac counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H2BK12ac.10k,H2BK12ac counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H2BK20ac.10k,H2BK20ac counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H2BK5ac.10k,H2BK5ac counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H2BK5me1.10k,H2BK5me1 counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H3K14ac.10k,H3K14ac counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H3K18ac.10k,H3K18ac counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H3K23ac.10k,H3K23ac counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H3K27ac.10k,H3K27ac counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H3K27me1.10k,H3K27me1 counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H3K27me2.10k,H3K27me2 counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H3K27me3.10k,H3K27me3 counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H3K36ac.10k,H3K36ac counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H3K36me1.10k,H3K36me1 counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H3K36me3.10k,H3K36me3 counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H3K4ac.10k,H3K4ac counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H3K4me1.10k,H3K4me1 counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H3K4me2.10k,H3K4me2 counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H3K4me3.10k,H3K4me3 counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H3K79me1.10k,H3K79me1 counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H3K79me2.10k,H3K79me2 counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H3K79me3.10k,H3K79me3 counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H3K9ac.10k,H3K9ac counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H3K9me1.10k,H3K9me1 counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H3K9me2.10k,H3K9me2 counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H3K9me3.10k,H3K9me3 counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H3R2me1.10k,H3R2me1 counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H3R2me2.10k,H3R2me2 counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H4K12ac.10k,H4K12ac counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H4K16ac.10k,H4K16ac counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H4K20me1.10k,H4K20me1 counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H4K20me3.10k,H4K20me3 counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H4K5ac.10k,H4K5ac counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H4K8ac.10k,H4K8ac counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H4K91ac.10k,H4K91ac counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Epigenetic,H4R3me2.10k,H4R3me2 counts within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Bound Proteins,CTCF.10k,CTCF sites within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Bound Proteins,NRSF.10k,NRSF or REST sites within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Bound Proteins,PolII.10k,PolII binding sites within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Bound Proteins,Brd2_promoters.10k,Brd2 promotors within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Bound Proteins,Brd3_promoters.10k,Brd3 promotors within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Bound Proteins,Brd4_promoters.10k,Brd4 promotors within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Bound Proteins,HP1a_promoters.10k,HP1aphla promotors within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Bound Proteins,HP1b_promoters.10k,HP1beta promotors within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Bound Proteins,Act_CD4_HDAC6.10k,HDAC6 binding in Activated CD4 Tcells within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Bound Proteins,Act_CD4_Tip60.10k,Tip60 bindiing in Activated CD4 Tcells within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Bound Proteins,ActivatedNucleosomes.10k,Activated Nucleosomes,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Bound Proteins,RestingNucleosomes.10k,Resting Nucleosomes,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Bound Proteins,Rest_CD4_CBP.10k,CBP binding in Resting CD4 Tcells within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Bound Proteins,Rest_CD4_HDAC1.10k,HDAC1 binding in Resting CD4 Tcells within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Bound Proteins,Rest_CD4_HDAC2.10k,HDAC2 binding in Resting CD4 Tcells within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Bound Proteins,Rest_CD4_HDAC3.10k,HDAC3 binding in Resting CD4 Tcells within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Bound Proteins,Rest_CD4_HDAC6.10k,HDAC6 binding in Resting CD4 Tcells within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Bound Proteins,Rest_CD4_MOF.10k,MOF binding in Resting CD4 Tcells within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Bound Proteins,Rest_CD4_p300.10k,p300 binding in Resting CD4 Tcells within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Bound Proteins,Rest_CD4_PCAF.10k,PCAF binding in Resting CD4 Tcells within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver
+Bound Proteins,Rest_CD4_Tip60.10k,Tip60 binding in Resting CD4 Tcells within X window,10,CD4+ Tcells,hg38,UCSC - hg18 LiftOver

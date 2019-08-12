@@ -28,12 +28,12 @@ source(file.path(scriptDir, "setup.R"))
 
 # Initialize processing from unprocessed integration sites
 numCores <- as.numeric(commandArgs(trailingOnly = TRUE)[
-  grep("-c", commandArgs(trailingOnly = TRUE)) + 1 
+  grep("^-c", commandArgs(trailingOnly = TRUE)) + 1 
 ])
 
 if( length(numCores) == 0 ) numCores <- parallel::detectCores()
 
-numCores <- min(numCores, detectCores())
+numCores <- min(numCores, parallel::detectCores())
 
 cat("[", paste(Sys.time()), "] Number of cores to use: ", numCores, "\n")
 
@@ -277,7 +277,10 @@ if( !file.exists("data/manuscript_epi_std_heatmap/roc.res.rds") ){
 # supplementary report in the manuscript.
 
 if(
-  file.exists("reports/cart19_goi_report.archive.v1.pdf") &
+  file.exists("reports/supp_goi_report_1.archive.v1.pdf") &
+  file.exists("reports/supp_goi_report_2.archive.v1.pdf") &
+  file.exists("reports/supp_goi_report_3.archive.v1.pdf") &
+  file.exists("reports/supp_goi_report_4.archive.v1.pdf") &
   file.exists("reports/cart19_intsite_analysis.archive.v1.pdf")
   ){
   
@@ -288,45 +291,126 @@ if(
   q()
   
 }else{
-
-  cat("[", paste(Sys.time()), "] Starting report generation, first goi report...\n")
   
-  # Generate genes of interest report
-  goi_report_template_path <- normalizePath(
-    file.path(scriptDir, "cart19_goi_report.archive.v1.Rmd")
-  )
-  
-  rmarkdown::render(
-    input = goi_report_template_path,
-    output_format = "pdf_document", 
-    output_file = "cart19_goi_report.archive.v1.pdf",
-    output_dir = "reports"
-  )
-  
-  while( !file.exists("reports/cart19_goi_report.archive.v1.pdf") ){
-    Sys.sleep(10)
+  if( !file.exists("reports/supp_goi_report_1.archive.v1.pdf") ){  
+    
+    cat("[", paste(Sys.time()), "] Starting report generation, first goi report...\n")
+    
+    # Generate genes of interest report
+    goi_report_template_path <- normalizePath(
+      file.path(scriptDir, "supp_goi_report_1.archive.v1.Rmd")
+    )
+    
+    rmarkdown::render(
+      input = goi_report_template_path,
+      output_format = "pdf_document", 
+      output_file = "supp_goi_report_1.archive.v1.pdf",
+      output_dir = "reports"
+    )
+    
+    while( !file.exists("reports/supp_goi_report_1.archive.v1.pdf") ){
+      Sys.sleep(10)
+    }
+    
   }
   
-  cat("\n[", paste(Sys.time()), "] Second report for manuscript figures...\n")
   
-  # Generate manuscript report
-  manuscript_report_template_path <- normalizePath(
-    file.path(scriptDir, "cart19_intsite_analysis.archive.v1.Rmd")
-  )
+  if( !file.exists("reports/supp_goi_report_2.archive.v1.pdf") ){
+    
+    cat("[", paste(Sys.time()), "] Starting report generation, CLL GOI report...\n")
+    
+    # Generate genes of interest report
+    goi_CLL_report_template_path <- normalizePath(
+      file.path(scriptDir, "supp_goi_report_2.archive.v1.Rmd")
+    )
+    
+    rmarkdown::render(
+      input = goi_CLL_report_template_path,
+      output_format = "pdf_document", 
+      output_file = "supp_goi_report_2.archive.v1.pdf",
+      output_dir = "reports"
+    )
+    
+    while( !file.exists("reports/supp_goi_report_2.archive.v1.pdf") ){
+      Sys.sleep(10)
+    }
+    
+  }
+
   
-  rmarkdown::render(
-    input = manuscript_report_template_path,
-    output_format = "pdf_document", 
-    output_file = "cart19_intsite_analysis.archive.v1.pdf",
-    output_dir = "reports"
-  )
+  if( !file.exists("reports/supp_goi_report_3.archive.v1.pdf") ){
+
+    cat("[", paste(Sys.time()), "] Starting report generation, ALL GOI report...\n")
+    
+    # Generate genes of interest report
+    goi_ALL_report_template_path <- normalizePath(
+      file.path(scriptDir, "supp_goi_report_3.archive.v1.Rmd")
+    )
+    
+    rmarkdown::render(
+      input = goi_ALL_report_template_path,
+      output_format = "pdf_document", 
+      output_file = "supp_goi_report_3.archive.v1.pdf",
+      output_dir = "reports"
+    )
+    
+    while( !file.exists("reports/supp_goi_report_3.archive.v1.pdf") ){
+      Sys.sleep(10)
+    }
+    
+  }
+
   
+  if( !file.exists("reports/supp_goi_report_4.archive.v1.pdf") ){
+    
+    cat("[", paste(Sys.time()), "] Starting report generation, CR GOI report...\n")
+    
+    # Generate genes of interest report
+    goi_CR_report_template_path <- normalizePath(
+      file.path(scriptDir, "supp_goi_report_4.archive.v1.Rmd")
+    )
+    
+    rmarkdown::render(
+      input = goi_CR_report_template_path,
+      output_format = "pdf_document", 
+      output_file = "supp_goi_report_4.archive.v1.pdf",
+      output_dir = "reports"
+    )
+    
+    while( !file.exists("reports/supp_goi_report_4.archive.v1.pdf") ){
+      Sys.sleep(10)
+    }
+    
+  }
+
+  
+  if( !file.exists("reports/cart19_intsite_analysis.archive.v1.pdf") ){
+    
+    cat("\n[", paste(Sys.time()), "] Starting final report for manuscript figures...\n")
+    
+    # Generate manuscript report
+    manuscript_report_template_path <- normalizePath(
+      file.path(scriptDir, "cart19_intsite_analysis.archive.v1.Rmd")
+    )
+
+    rmarkdown::render(
+      input = manuscript_report_template_path,
+      output_format = "pdf_document", 
+      output_file = "cart19_intsite_analysis.archive.v1.pdf",
+      output_dir = "reports"
+    )
+  
+  }
   
   Sys.sleep(10)
-  
+
+    
   if( 
-    file.exists("reports/cart19_goi_report.archive.v1.pdf") &
-    file.exists("reports/cart19_intsite_analysis.archive.v1.pdf") 
+    file.exists("reports/supp_goi_report_1.archive.v1.pdf") &
+    file.exists("reports/supp_goi_report_2.archive.v1.pdf") &
+    file.exists("reports/supp_goi_report_3.archive.v1.pdf") &
+    file.exists("reports/supp_goi_report_4.archive.v1.pdf") &
+    file.exists("reports/cart19_intsite_analysis.archive.v1.pdf")
   ){
     
     cat("[", paste(Sys.time()), "] Reports generated. Analysis has completed.\n")

@@ -1,0 +1,16 @@
+\newpage
+## Genes with the Most Abundant Clones
+
+```{r top_abundance_tbl}
+kable(
+    head(df2.2, n = 50), format = "latex", booktabs = TRUE, 
+    caption = paste(
+      "Table of top", nrow(head(df2.2, n = 50)), 
+      "Genes containing the highest abundant clones."), 
+    align = "c", digits = 3
+  ) %>%
+  kableExtra::kable_styling(
+    latex_options = c("hold_position"),
+    font_size = 9
+  )
+```

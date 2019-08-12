@@ -1,0 +1,41 @@
+\newpage
+# Comprehensive Genes of Interest Table
+
+```{r sup_table}
+df6 %>%
+  dplyr::mutate(
+    seqnames = stringr::str_extract(loci, "[\\w]+"),
+    range = stringr::str_extract(loci, "[0-9:]+$"),
+    start = as.numeric(stringr::str_extract(range, "[0-9]+")) - 5000,
+    end = as.numeric(stringr::str_extract(range, "[0-9]+$")) + 5000,
+    start = format(start, big.mark = ","),
+    end = format(end, big.mark = ","),
+    pct_chg = sprintf("%.01f", pct_chg)
+  ) %>%
+  dplyr::select(
+    gene_name, seqnames, start, end, TP_num_patients, pct_chg, TP_peak_abund, 
+    max_span, crit_id
+  ) %>%
+  dplyr::rename(
+    "Gene" = gene_name, 
+    "Chromosome" = seqnames,
+    "Start Pos." = start,
+    "End Pos." = end, 
+    "Patients" = TP_num_patients, 
+    "Freq. Change (%)" = pct_chg, 
+    "Peak Abund." = TP_peak_abund, 
+    "Long. Obs." = max_span, 
+    "Criteria" = crit_id
+  ) %>%
+  kable(
+    format = "latex", booktabs = TRUE, longtable = TRUE,
+    caption = "Table of all genes identified within analysis.", 
+    align = "c"
+  ) %>%
+  kable_styling(
+    latex_options = c("hold_position", "repeat_header"),
+    font_size = 9
+  ) %>%
+  landscape()
+
+```

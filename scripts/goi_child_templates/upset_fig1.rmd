@@ -1,0 +1,31 @@
+```{r upset_summary_plot, fig.height=4, fig.cap=fig1cap}
+inter_df <- dplyr::select(
+  df6, enr_freq, dep_freq, abund, long, tcount) %>%
+  dplyr::filter(tcount > 1) %>%
+  dplyr::arrange(tcount) %>%
+  dplyr::distinct(enr_freq, dep_freq, abund, long) %>%
+  dplyr::rename(
+    "Enrichment" = enr_freq, "Depletion" = dep_freq, 
+    "Abundance" = abund, "Longitudinal" = long #, "Clusters" = clust
+  ) %>%
+  as.data.frame()
+
+criteria_intersections <- lapply(seq_len(nrow(inter_df)), function(i){
+  as.list(colnames(inter_df)[as.logical(inter_df[i,])])
+})
+
+upset(
+  fromList(potential_genes[1:4]),
+  nsets = ncol(inter_df),
+  matrix.color = "black", 
+  main.bar.color = "black", 
+  sets.bar.color = "black", 
+  shade.color = "grey50", 
+  order.by = c("freq", "degree"), 
+  decreasing = c(TRUE, FALSE), 
+  intersections = criteria_intersections,
+  mainbar.y.label = "Intersecting Gene Count",
+  sets.x.label = "Genes in Set",
+  text.scale = 1.25
+)
+```

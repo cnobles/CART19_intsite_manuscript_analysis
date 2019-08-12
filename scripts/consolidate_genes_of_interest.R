@@ -1,12 +1,15 @@
 #### This script identifies and annotates genes of interest from clustered data.
 #### It requires the working environment of cart19_intsite_analysis.Rmd.
-output_files <- c("cart19_goi_impact.csv", "cart19_gene_stats.csv")
+output_files <- c(
+  "cart19_goi_impact.csv", "cart19_gene_stats.csv", "cart19_cll_gene_stats.csv",
+  "cart19_all_gene_stats.csv", "cart19_cr_gene_stats.csv"
+)
 
 if(
   !all(sapply(output_files, function(x) file.exists(file.path(outputDir, x))))
 ){
 
-  # Load genes of interest -------------------------------------------------------
+  # Load genes of interest -----------------------------------------------------
   top_one_pc_sonicAbund <- as.character(read.table(
     file.path(outputDir, "top_one_percent_of_gene_ids_by_sonicAbund.txt"),
     header = FALSE, sep = "\t")[1,1])
@@ -15,7 +18,7 @@ if(
     file.path(outputDir, "top_ten_percent_of_gene_ids_by_sonicAbund.txt"),
     header = FALSE, sep = "\t")[1,1])
   
-  ## Identify genes of interest from clusters and clonal expansions --------------
+  ## Identify genes of interest from clusters and clonal expansions ------------
   cluster_gene_list <- unique(unlist(sapply(
     red_clusters$genes_in_cluster, 
     function(x) unlist(strsplit(x, ", "))), use.names = FALSE))
@@ -85,7 +88,7 @@ if(
     pop_calcs(df$abund, calc = "gini")
   })
   
-  # Annotate which genes are overlapping -----------------------------------------
+  # Annotate which genes are overlapping ---------------------------------------
   goi_stats$Overlapping_Genes <- sapply(goi_stats$gene_name, function(gene){
     gene_range <- refGenes[which(refGenes$name2 == gene)]
     ovlp_hits <- refGenes[subjectHits(findOverlaps(
@@ -93,7 +96,7 @@ if(
     paste(unique(ovlp_hits[which(ovlp_hits != gene)]), collapse = ", ")
   })
   
-  # Annotate with which list the gene belongs ------------------------------------
+  # Annotate with which list the gene belongs ----------------------------------
   goi_stats <- goi_stats %>%
     dplyr::mutate(
       "On_Onco_List" = gene_name %in% oncoGenes,
@@ -102,7 +105,7 @@ if(
       "Within_Cluster" = gene_name %in% cluster_gene_list
     )
   
-  # Identify which clusters the genes belong to ----------------------------------
+  # Identify which clusters the genes belong to --------------------------------
   all_clusters <- cart19_clusters
   all_clusters$genes_in_cluster <- scan_genes(all_clusters, refGenes)
   
@@ -122,7 +125,7 @@ if(
   
   goi_stats$gene_name <- paste0("'", goi_stats$gene_name)
   
-  # Nearest gene approach for binning the data -----------------------------------
+  # Nearest gene approach for binning the data ---------------------------------
   refGenesOrt <- as.data.frame(refGenes, row.names = NULL) %>%
     dplyr::select(name2, strand) %>%
     dplyr::group_by(name2) %>%
@@ -193,7 +196,7 @@ if(
     dplyr::ungroup() %>% 
     as.data.frame()
   
-  ## Annotate with which list the gene belongs ===================================
+  ## Annotate with which list the gene belongs =================================
   gene_stats <- gene_stats %>%
     dplyr::mutate(
       "On_Onco_List" = gene_name %in% oncoGenes,
@@ -202,7 +205,7 @@ if(
       "Within_Cluster" = gene_name %in% cluster_gene_list
     )
   
-  ## Identify which clusters the genes belong to =================================
+  ## Identify which clusters the genes belong to ===============================
   gene_stats$Cluster_target.min <- sapply(
     gene_stats$gene_name, function(gene){
       clusters <- all_clusters[grep(gene, all_clusters$genes_in_cluster)]
@@ -228,4 +231,274 @@ if(
     row.names = FALSE
   )
 
+  # CLL only data ----
+  CLL_gene_stats <- as.data.frame(cond_uniq_sites, row.names = NULL) %>%
+    dplyr::filter(patient %in% CLL_pats) %>%
+    dplyr::select(
+      specimen, patient, celltype, timepoint, estAbund, relAbund, posid, 
+      gene_id_wo_annot, in_gene, nearest_geneDist, start, strand, seqnames) %>%
+    dplyr::mutate(
+      type = ifelse(timepoint == "d0", "TDN", "TP"),
+      gene_name = ifelse(is.na(gene_id_wo_annot), posid, gene_id_wo_annot),
+      nearest_geneDist = ifelse(is.na(nearest_geneDist), 0, nearest_geneDist)) %>%
+    dplyr::rename(ort = strand) %>%
+    dplyr::group_by(type, patient, gene_name, posid, ort) %>%
+    dplyr::summarise(
+      long_count = n_distinct(timepoint),
+      peak_abund = max(estAbund),
+      peak_relAbund = max(relAbund),
+      max_geneDist = max(ifelse(in_gene == FALSE, abs(nearest_geneDist), 0)),
+      loci = unique(start)) %>%
+    dplyr::ungroup() %>%
+    dplyr::left_join(., refGenesOrt, by = c("gene_name" = "gene")) %>%
+    dplyr::mutate(gene_ort = ifelse(is.na(gene_ort), "*", gene_ort)) %>%
+    dplyr::group_by(type, gene_name, gene_ort) %>%
+    dplyr::summarise(
+      num_patients = n_distinct(patient),
+      num_sites = n_distinct(posid),
+      long_count = max(long_count),
+      abund_gini = pop_calcs(peak_abund, calc = "gini"),
+      peak_abund = max(peak_abund),
+      peak_relAbund = max(peak_relAbund),
+      max_geneDist = max(max_geneDist),
+      min_loci = min(loci),
+      max_loci = max(loci),
+      same_ort = length(which(ort == gene_ort)),
+      oppo_ort = length(which(ort != gene_ort))) %>%
+    dplyr::ungroup() %>% 
+    as.data.frame() %>%
+    melt(
+      id.vars = c("type", "gene_name", "gene_ort"), 
+      measure.vars = c(
+        "num_patients", "num_sites", "long_count", 
+        "peak_abund", "peak_relAbund", "abund_gini", "max_geneDist",
+        "min_loci", "max_loci", "same_ort", "oppo_ort")) %>%
+    dcast(gene_name + gene_ort ~ type + variable, fill = 0) %>%
+    dplyr::group_by(gene_name, gene_ort) %>%
+    dplyr::mutate(
+      long_count = TP_long_count,
+      abund_gini = TP_abund_gini,
+      max_geneDist = max(TDN_max_geneDist, TP_max_geneDist),
+      genomic_range = max(c(TDN_max_loci, TP_max_loci)) - 
+        min(c(TDN_min_loci, TP_min_loci)),
+      ort_fisher_test = fisher.test(
+        matrix(
+          c(TDN_same_ort, TDN_oppo_ort, TP_same_ort, TP_oppo_ort), 
+          nrow = 2, ncol = 2))$p.value) %>%
+    dplyr::select(
+      gene_name, gene_ort, TDN_num_patients, TP_num_patients, TDN_num_sites, 
+      TP_num_sites, TDN_peak_abund, TP_peak_abund, TDN_peak_relAbund, 
+      TP_peak_relAbund, abund_gini, long_count, max_geneDist, genomic_range, 
+      ort_fisher_test) %>%
+    dplyr::ungroup() %>% 
+    as.data.frame()
+  
+  ## Annotate with which list the gene belongs =================================
+  CLL_gene_stats <- CLL_gene_stats %>%
+    dplyr::mutate(
+      "On_Onco_List" = gene_name %in% oncoGenes,
+      "Top_1pc_Abund" = gene_name %in% top_clonal_genes,
+      "Top_10pc_Abund" = gene_name %in% top_ten_pc_clonal_genes,
+      "Within_Cluster" = gene_name %in% cluster_gene_list
+    )
+  
+  ## Identify which clusters the genes belong to ===============================
+  CLL_gene_stats$Cluster_target.min <- sapply(
+    CLL_gene_stats$gene_name, function(gene){
+      clusters <- all_clusters[grep(gene, all_clusters$genes_in_cluster)]
+      if(length(clusters) == 0){
+        target <- NA
+      }else{
+        target <- min(clusters$target.min)
+      }
+      target
+    })
+  
+  write.csv(
+    CLL_gene_stats,
+    file = file.path(outputDir, "cart19_cll_gene_stats.csv"),
+    quote = TRUE,
+    row.names = FALSE
+  )
+  
+  # ALL only data ----
+  ALL_gene_stats <- as.data.frame(cond_uniq_sites, row.names = NULL) %>%
+    dplyr::filter(patient %in% ALL_pats) %>%
+    dplyr::select(
+      specimen, patient, celltype, timepoint, estAbund, relAbund, posid, 
+      gene_id_wo_annot, in_gene, nearest_geneDist, start, strand, seqnames) %>%
+    dplyr::mutate(
+      type = ifelse(timepoint == "d0", "TDN", "TP"),
+      gene_name = ifelse(is.na(gene_id_wo_annot), posid, gene_id_wo_annot),
+      nearest_geneDist = ifelse(is.na(nearest_geneDist), 0, nearest_geneDist)) %>%
+    dplyr::rename(ort = strand) %>%
+    dplyr::group_by(type, patient, gene_name, posid, ort) %>%
+    dplyr::summarise(
+      long_count = n_distinct(timepoint),
+      peak_abund = max(estAbund),
+      peak_relAbund = max(relAbund),
+      max_geneDist = max(ifelse(in_gene == FALSE, abs(nearest_geneDist), 0)),
+      loci = unique(start)) %>%
+    dplyr::ungroup() %>%
+    dplyr::left_join(., refGenesOrt, by = c("gene_name" = "gene")) %>%
+    dplyr::mutate(gene_ort = ifelse(is.na(gene_ort), "*", gene_ort)) %>%
+    dplyr::group_by(type, gene_name, gene_ort) %>%
+    dplyr::summarise(
+      num_patients = n_distinct(patient),
+      num_sites = n_distinct(posid),
+      long_count = max(long_count),
+      abund_gini = pop_calcs(peak_abund, calc = "gini"),
+      peak_abund = max(peak_abund),
+      peak_relAbund = max(peak_relAbund),
+      max_geneDist = max(max_geneDist),
+      min_loci = min(loci),
+      max_loci = max(loci),
+      same_ort = length(which(ort == gene_ort)),
+      oppo_ort = length(which(ort != gene_ort))) %>%
+    dplyr::ungroup() %>% 
+    as.data.frame() %>%
+    melt(
+      id.vars = c("type", "gene_name", "gene_ort"), 
+      measure.vars = c(
+        "num_patients", "num_sites", "long_count", 
+        "peak_abund", "peak_relAbund", "abund_gini", "max_geneDist",
+        "min_loci", "max_loci", "same_ort", "oppo_ort")) %>%
+    dcast(gene_name + gene_ort ~ type + variable, fill = 0) %>%
+    dplyr::group_by(gene_name, gene_ort) %>%
+    dplyr::mutate(
+      long_count = TP_long_count,
+      abund_gini = TP_abund_gini,
+      max_geneDist = max(TDN_max_geneDist, TP_max_geneDist),
+      genomic_range = max(c(TDN_max_loci, TP_max_loci)) - 
+        min(c(TDN_min_loci, TP_min_loci)),
+      ort_fisher_test = fisher.test(
+        matrix(
+          c(TDN_same_ort, TDN_oppo_ort, TP_same_ort, TP_oppo_ort), 
+          nrow = 2, ncol = 2))$p.value) %>%
+    dplyr::select(
+      gene_name, gene_ort, TDN_num_patients, TP_num_patients, TDN_num_sites, 
+      TP_num_sites, TDN_peak_abund, TP_peak_abund, TDN_peak_relAbund, 
+      TP_peak_relAbund, abund_gini, long_count, max_geneDist, genomic_range, 
+      ort_fisher_test) %>%
+    dplyr::ungroup() %>% 
+    as.data.frame()
+  
+  ## Annotate with which list the gene belongs =================================
+  ALL_gene_stats <- ALL_gene_stats %>%
+    dplyr::mutate(
+      "On_Onco_List" = gene_name %in% oncoGenes,
+      "Top_1pc_Abund" = gene_name %in% top_clonal_genes,
+      "Top_10pc_Abund" = gene_name %in% top_ten_pc_clonal_genes,
+      "Within_Cluster" = gene_name %in% cluster_gene_list
+    )
+  
+  ## Identify which clusters the genes belong to ===============================
+  ALL_gene_stats$Cluster_target.min <- sapply(
+    ALL_gene_stats$gene_name, function(gene){
+      clusters <- all_clusters[grep(gene, all_clusters$genes_in_cluster)]
+      if(length(clusters) == 0){
+        target <- NA
+      }else{
+        target <- min(clusters$target.min)
+      }
+      target
+    })
+  
+  write.csv(
+    ALL_gene_stats,
+    file = file.path(outputDir, "cart19_all_gene_stats.csv"),
+    quote = TRUE,
+    row.names = FALSE
+  )
+  
+  # CR patients only data ----
+  CR_gene_stats <- as.data.frame(cond_uniq_sites, row.names = NULL) %>%
+    dplyr::filter(patient %in% Std_CR_pats) %>%
+    dplyr::select(
+      specimen, patient, celltype, timepoint, estAbund, relAbund, posid, 
+      gene_id_wo_annot, in_gene, nearest_geneDist, start, strand, seqnames) %>%
+    dplyr::mutate(
+      type = ifelse(timepoint == "d0", "TDN", "TP"),
+      gene_name = ifelse(is.na(gene_id_wo_annot), posid, gene_id_wo_annot),
+      nearest_geneDist = ifelse(is.na(nearest_geneDist), 0, nearest_geneDist)) %>%
+    dplyr::rename(ort = strand) %>%
+    dplyr::group_by(type, patient, gene_name, posid, ort) %>%
+    dplyr::summarise(
+      long_count = n_distinct(timepoint),
+      peak_abund = max(estAbund),
+      peak_relAbund = max(relAbund),
+      max_geneDist = max(ifelse(in_gene == FALSE, abs(nearest_geneDist), 0)),
+      loci = unique(start)) %>%
+    dplyr::ungroup() %>%
+    dplyr::left_join(., refGenesOrt, by = c("gene_name" = "gene")) %>%
+    dplyr::mutate(gene_ort = ifelse(is.na(gene_ort), "*", gene_ort)) %>%
+    dplyr::group_by(type, gene_name, gene_ort) %>%
+    dplyr::summarise(
+      num_patients = n_distinct(patient),
+      num_sites = n_distinct(posid),
+      long_count = max(long_count),
+      abund_gini = pop_calcs(peak_abund, calc = "gini"),
+      peak_abund = max(peak_abund),
+      peak_relAbund = max(peak_relAbund),
+      max_geneDist = max(max_geneDist),
+      min_loci = min(loci),
+      max_loci = max(loci),
+      same_ort = length(which(ort == gene_ort)),
+      oppo_ort = length(which(ort != gene_ort))) %>%
+    dplyr::ungroup() %>% 
+    as.data.frame() %>%
+    melt(
+      id.vars = c("type", "gene_name", "gene_ort"), 
+      measure.vars = c(
+        "num_patients", "num_sites", "long_count", 
+        "peak_abund", "peak_relAbund", "abund_gini", "max_geneDist",
+        "min_loci", "max_loci", "same_ort", "oppo_ort")) %>%
+    dcast(gene_name + gene_ort ~ type + variable, fill = 0) %>%
+    dplyr::group_by(gene_name, gene_ort) %>%
+    dplyr::mutate(
+      long_count = TP_long_count,
+      abund_gini = TP_abund_gini,
+      max_geneDist = max(TDN_max_geneDist, TP_max_geneDist),
+      genomic_range = max(c(TDN_max_loci, TP_max_loci)) - 
+        min(c(TDN_min_loci, TP_min_loci)),
+      ort_fisher_test = fisher.test(
+        matrix(
+          c(TDN_same_ort, TDN_oppo_ort, TP_same_ort, TP_oppo_ort), 
+          nrow = 2, ncol = 2))$p.value) %>%
+    dplyr::select(
+      gene_name, gene_ort, TDN_num_patients, TP_num_patients, TDN_num_sites, 
+      TP_num_sites, TDN_peak_abund, TP_peak_abund, TDN_peak_relAbund, 
+      TP_peak_relAbund, abund_gini, long_count, max_geneDist, genomic_range, 
+      ort_fisher_test) %>%
+    dplyr::ungroup() %>% 
+    as.data.frame()
+  
+  ## Annotate with which list the gene belongs =================================
+  CR_gene_stats <- CR_gene_stats %>%
+    dplyr::mutate(
+      "On_Onco_List" = gene_name %in% oncoGenes,
+      "Top_1pc_Abund" = gene_name %in% top_clonal_genes,
+      "Top_10pc_Abund" = gene_name %in% top_ten_pc_clonal_genes,
+      "Within_Cluster" = gene_name %in% cluster_gene_list
+    )
+  
+  ## Identify which clusters the genes belong to ===============================
+  CR_gene_stats$Cluster_target.min <- sapply(
+    CR_gene_stats$gene_name, function(gene){
+      clusters <- all_clusters[grep(gene, all_clusters$genes_in_cluster)]
+      if(length(clusters) == 0){
+        target <- NA
+      }else{
+        target <- min(clusters$target.min)
+      }
+      target
+    })
+  
+  write.csv(
+    CR_gene_stats,
+    file = file.path(outputDir, "cart19_cr_gene_stats.csv"),
+    quote = TRUE,
+    row.names = FALSE
+  )
+  
 }

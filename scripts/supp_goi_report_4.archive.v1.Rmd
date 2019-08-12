@@ -1,0 +1,993 @@
+---
+title: |
+    | Supplementary Report 4:
+    | Genes of interest marked by vector integration
+    | Response Group CR/PRtd only (CLL & ALL Patients)
+output: 
+  pdf_document:
+    latex_engine: lualatex
+    toc: true
+    number_sections: false
+    toc_depth: 2
+    fig_caption: true
+    df_print: default
+    highlight: espresso
+header-includes: 
+  - \usepackage{float,indentfirst,booktabs,longtable,array,multirow,pdflscape,tabu}
+  - \usepackage[normalem]{ulem}
+  - \setlength{\defaultaddspace}{0em}
+  - \setlength{\parindent}{2em}
+fontsize: 11pt
+geometry: margin=0.75in
+---
+--------------------------------------------------------------------------------
+```{r setup, include=FALSE}
+# Options, packages, and parameters --------------------------------------------
+options(stringsAsFactors = FALSE)
+
+packs <- c(
+  "BiocGenerics", "GenomicRanges", "igraph", "Matrix", "gintools", "spraphal", 
+  "data.table", "intergraph", "network", "sna", "ggnet", "dnet", "GO.db", 
+  "parallel", "ggrepel", "scales", "grid", "gridExtra", "RColorBrewer", 
+  "reshape2", "knitr", "kableExtra", "UpSetR", "BiasedUrn", "foreach",
+  "KEGGREST", "magrittr", "tidyverse"
+)
+
+packsLoaded <- suppressMessages(
+  sapply(packs, require, character.only = TRUE))
+if(!all(packsLoaded)){
+  pandoc.table(data.frame(
+    "R-Packages" = names(packsLoaded),
+    "Loaded" = packsLoaded,
+    row.names = NULL))
+  stop("Check dependancies.")
+}
+
+knitr::opts_chunk$set(
+  echo = FALSE,
+  fig.path = file.path(workingDir, "reports", "goi_report_figures/"),
+  fig.align = "center",
+  comment = "",
+  echo = FALSE,
+  warning = FALSE,
+  error = TRUE,
+  message = FALSE,
+  cache = FALSE,
+  dpi = 300,
+  dev = "png",
+  results = "asis",
+  fig.pos = "H",
+  fig.width = 7
+)
+
+```
+
+```{r analysis, include=FALSE}
+source(file.path(scriptDir, "supporting_functions.R"))
+source(file.path(scriptDir, "supporting_goa_functions.R"))
+
+# Import HGNC reference data for annotation and consistency ----
+hgnc_complete <- fread(
+  paste0("zcat ", file.path(utilsDir, "hgnc_complete_set.180207.txt.gz")),
+  sep = "\t", header = TRUE, 
+  select = c(
+    "HGNC ID", "Approved Symbol", "Approved Name", "Locus Group", 
+    "Locus Type", "Synonyms", "Previous Symbols", "Entrez Gene ID", 
+    "Ensembl Gene ID", "RefSeq (supplied by NCBI)", 
+    "UniProt ID (supplied by UniProt)"
+  ),
+  data.table = FALSE
+)
+
+names(hgnc_complete) <- c(
+    "hgnc_id", "symbol", "name", "locus_group", "locus_type", "alias_symbol", 
+    "prev_symbol", "entrez_id", "ensembl_gene_id", "refseq_accession", 
+    "uniprot_ids"
+)
+
+hgnc_complete <- dplyr::filter(hgnc_complete, !grepl("withdrawn", symbol)) %>%
+  dplyr::mutate(
+    kegg_id = paste0("hsa:", entrez_id),
+    entrez_id = paste0(entrez_id, ":EZID"),
+    alias_symbol = gsub(", ", "|", alias_symbol),
+    prev_symbol = gsub(", ", "|", prev_symbol),
+    extended_alias = paste0(
+      alias_symbol, "|", prev_symbol, "|", ensembl_gene_id, "|", 
+      refseq_accession, "|", uniprot_ids))
+
+
+## Processing information ----
+genomicFreeze <- "hg38"
+refGenome <- BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38
+
+analysisDate <- Sys.Date()
+
+trial <- "CART19"
+
+set.seed(1234)
+
+lines_per_page <- 45
+max_GO_size <- 500
+min_GO_ovlp <- 5
+max_KEGG_size <- 500
+min_KEGG_ovlp <- 5
+
+excluded_gene_names <- c(
+  "TET2-AS1", "HNRNPUL2-BSCL2", "ANKHD1-EIF4EBP3", "TONSL-AS1", 
+  "ATP6V1G2-DDX39B", "C7orf55-LUC7L2"
+)
+
+## Formatting functions 
+pick_slice_cnt <- function(x, max_cnt){
+  x_cnt <- table(x)
+  sum(sapply(seq_len(max(x_cnt)), function(i){
+    sum(ifelse(x_cnt <= i, x_cnt, i)) <= max_cnt
+  }))
+}
+
+read_special_genelist <- function(file){
+  file_str <- readr::read_file(file)
+  file_vec <- unlist(stringr::str_split(file_str, "\n"))
+  stopifnot(length(file_vec) >= 3)
+  pathway <- file_vec[1]
+  description <- gsub("> ", "", file_vec[2])
+  gene_list <- file_vec[3:length(file_vec)]
+  list("path" = pathway, "desc" = description, "genes" = gene_list)
+}
+
+## Reference and supporting files ----
+intsiteSpecimenMetadata <- read.csv(
+  file.path(outputDir, "cart19_intsite_sample_list.csv")
+)
+
+ref_genes <- readRDS(file.path(utilsDir, "hg38.refSeq.rds"))
+
+ref_genes$name2 <- alias_arbiter(
+  IDs = ref_genes$name2, 
+  RefIDs = hgnc_complete$symbol,
+  aliasIDs = hgnc_complete$extended_alias,
+  sep = "|", remove_absent_IDs = NULL, quiet = TRUE
+)
+
+onco_genes_data <- read.delim(
+  file.path(utilsDir, "allOnco.human.v3.tsv"),
+  header = TRUE, 
+  sep = "\t",
+  stringsAsFactors = FALSE
+)
+
+onco_genes <- unique(onco_genes_data[,"symbol"]) %>%
+  alias_arbiter(
+    IDs = ., 
+    RefIDs = hgnc_complete$symbol,
+    aliasIDs = hgnc_complete$extended_alias,
+    sep = "|", remove_absent_IDs = NULL, quiet = TRUE
+  )
+
+non_onco_genes <- unique(ref_genes$name2[!ref_genes$name2 %in% onco_genes])
+
+tum_sups <- read.delim(file.path(utilsDir, "TSGene.tsv"))$GeneSymbol %>%
+  alias_arbiter(
+    IDs = ., 
+    RefIDs = hgnc_complete$symbol,
+    aliasIDs = hgnc_complete$extended_alias,
+    sep = "|", remove_absent_IDs = NULL, quiet = TRUE
+  )
+
+bad_actors <- read.delim(
+    file.path(utilsDir, "humanLymph.v1.list"),
+    header = FALSE,
+    sep = "\t",
+    stringsAsFactors = FALSE
+  )[,1] %>%
+  alias_arbiter(
+    IDs = ., 
+    RefIDs = hgnc_complete$symbol,
+    aliasIDs = hgnc_complete$extended_alias,
+    sep = "|", remove_absent_IDs = NULL, quiet = TRUE
+  )
+
+
+if( file.exists(file.path(utilsDir, "COSMIC_cancer_gene_census.csv")) ){
+  
+  cosmic_genes <- read.csv(
+      file.path(utilsDir, "COSMIC_cancer_gene_census.csv")
+    ) %>%
+    dplyr::mutate(
+      gene_name = hgnc_complete$symbol[match(
+        Entrez.GeneId, stringr::str_extract(hgnc_complete$entrez_id, "[\\d]+")
+      )],
+      gene_name = ifelse(is.na(gene_name), Gene.Symbol, gene_name)
+    ) %$%
+    gene_name
+    
+}else{
+  
+  cosmic_genes <- vector(mode = "character")
+  
+}
+
+TCGA_list <- read.csv(
+    file.path(utilsDir, "Xie_et_al.2014_Nat_Med_SupTbl7.csv")
+  ) %>%
+  dplyr::mutate(
+    gene_name = alias_arbiter(
+      IDs = Gene_Name,
+      RefIDs = hgnc_complete$symbol,
+      aliasIDs = hgnc_complete$extended_alias,
+      sep = "|", remove_absent_IDs = NULL, quiet = TRUE)
+  ) %$%
+  gene_name
+    
+clonal_hema_list <- c(
+      "ASXL1", "ATM", "AXL", "BCORL1", "CBL", "CDKN2A", "CREBBP", "DIDO1", 
+      "DNMT3A", "GNAS", "GUCY1A2", "HDAC4", "IDH2", "JAK2", "MBD1", "MECOM",
+      "MYLK", "NOTCH3", "PPM1D", "PRKDC", "RICTOR", "SETBP1", "SF1", 
+      "SF3B1", "SH2B3", "SNX25", "SOS1", "TET2", "TP53", "ZRSR2"
+  ) %>%
+  alias_arbiter(
+    IDs = .,
+    RefIDs = hgnc_complete$symbol,
+    aliasIDs = hgnc_complete$extended_alias,
+    sep = "|", remove_absent_IDs = NULL, quiet = TRUE
+  )
+
+
+
+## Develop standard factor scales for celltypes and timepoints ----
+celltypeLevels <- c(
+  "PB", "PBMC", "PBL", "Whole Blood", "Tcells", "Tcells:CAR+", 
+  "Tcells:CAR+CD4+", "Tcells:CAR+CD8+", "Tcells:CAR+CD8-", "Tcells:CAR-CD4+", 
+  "Tcells:CD4+SP", "Tcells:CAR-CD8+", "Tcells:CAR-CD8-", "Tcells:CD4+", 
+  "Tcells:CD8+", "Tcells:CD8+Naive", "Tcells:CD8+Tscm", "Tcells:CD8+Tcm", 
+  "Tcells:CD8+Tem", "Tcells:CD8+Te", "Tcells:CD8+Tm", "Tcells:CD4+CD8+", 
+  "Tcells:CD4+CD8+DP", "Tcells:CD4+CD8+DN", "Bone Marrow", "BM", "BMMC", 
+  "BM:CAR+", "CD3-"
+)
+
+timepointLevels <- c(
+  "d-10", "d-1", "d0", "d1", "d5", "d7", "d9", "d10", "d11", "d13", "d14", 
+  "d15", "d17", "d21", "d23", "d25", "d28", "d30", "d35", "d36", "d42", "d49",
+  "d50", "m2", "d63", "d75", "d90", "m3", "d92", "d120", "d121", "m4", "d133",
+  "d147", "m5", "d169", "m6", "d204", "m9", "m12", "y1", "d442", "m15", "m18", 
+  "y1.5", "m20", "m21", "d720", "m24", "y2", "d801",  "y2.5", "m32", "y3", 
+  "y4", "d1584", "y4.5", "m60", "y5", "y5.5", "y6", "y6.5", "y7", "y8"
+)  
+
+# Plot theme ----
+custom_theme <- theme_bw() + 
+  theme(
+    panel.border = element_blank(), 
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(), 
+    axis.line.x = element_line(color = "black"),
+    axis.line.y = element_line(color = "black"),
+    axis.title.y = element_text(size = 10),
+    axis.title.x = element_text(size = 10),
+    axis.text.x = element_text(size = 10),
+    axis.text.y = element_text(size = 10),
+    legend.text = element_text(size = 10),
+    legend.title = element_text(size = 10),
+    plot.title = element_text(size = 12)
+  )
+
+# Load integration site data if available ----
+data_files <- list.files(outputDir)
+
+file <- grep("specimen_data", data_files, value = TRUE)
+specimen_data <- readRDS(file.path(outputDir, file))
+
+cond_uniq_sites <- readRDS(file.path(outputDir, "condensed_intsites.rds"))
+
+cond_uniq_sites <- cond_uniq_sites[cond_uniq_sites$patient %in% Std_CR_pats]
+
+tp_sites <- cond_uniq_sites[cond_uniq_sites$timepoint != "d0"]
+
+cluster_list <- readRDS(file.path(outputDir, "cart19_clusters.rds"))
+
+gene_stats <- read.csv(
+    file.path(outputDir, "cart19_cr_gene_stats.csv")) %>%
+  dplyr::mutate(gene_name = alias_arbiter(
+    IDs = gene_name,
+    RefIDs = hgnc_complete$symbol,
+    aliasIDs = hgnc_complete$extended_alias,
+    sep = "|", remove_absent_IDs = NULL, quiet = TRUE))
+
+gene_impact <- readRDS(
+    file.path(outputDir, "cart19_cr_gene_impact.rds")) %>%
+  dplyr::select(-ort_fisher_test) %>%
+  dplyr::filter(!gene_name %in% excluded_gene_names) %>%
+  dplyr::mutate(gene_name = alias_arbiter(
+    IDs = gene_name,
+    RefIDs = hgnc_complete$symbol,
+    aliasIDs = hgnc_complete$extended_alias,
+    sep = "|", remove_absent_IDs = NULL, quiet = TRUE
+  ))
+
+
+# Import KEGG pathways ----
+k_list <- keggList("hsa")
+k_path <- keggList("pathway", "hsa")
+
+k_pathList <- do.call(c, sapply(
+  split(k_path, ceiling(seq_along(k_path)/100)),
+  function(x) KEGGREST::keggLink("hsa", names(x))
+))
+
+k_pathList <- structure(
+  hgnc_complete$symbol[match(k_pathList, hgnc_complete$kegg_id)],
+  names = stringr::str_extract(names(k_pathList), "path:[\\w]+$")
+)
+
+k_pathList <- k_pathList[k_pathList %in% gene_impact$gene_name]
+k_pathList <- split(k_pathList, names(k_pathList))
+k_genes <- unique(unlist(k_pathList))
+
+k_path_df <- plyr::ldply(
+  k_pathList, 
+  function(x){data.frame(gene_sym = x)}, 
+  .id = "path"
+)
+
+# Import GO Biological Process reference ----
+# Construct GO DAG from GO.db
+Gobp <- unlist(as.list(GO.db::GOBPCHILDREN)) %>%
+  data.frame(
+    "vi" = str_extract(names(.), "[\\w:]+"),
+    "vj" = .,
+    "annotation" = str_extract(names(.), "[\\w]+$")) %>%
+  dplyr::filter(!is.na(vj)) %>%
+  dplyr::filter(annotation %in% c("is_a", "part_of")) %>%
+  construct_graph(E = ., mode = "directed")
+
+ignored_GOTERMs <- names(V(Gobp)[which(layout_as_tree(Gobp)[,2] >= 9)])
+Gobp <- induced_subgraph(
+  Gobp, names(V(Gobp))[!names(V(Gobp)) %in% ignored_GOTERMs])
+
+# Pick up gene product annotations to GO terms (UniProt-GOA)
+goa_bpdata <- load_go_gaf(
+    paste0("zcat ", file.path(utilsDir, "goa_human.gaf.gz"))
+  ) %>% 
+  dplyr::mutate(gene_symbol = alias_arbiter(
+    IDs = DB_Object_Symbol, 
+    RefIDs = hgnc_complete$symbol, 
+    aliasIDs = hgnc_complete$extended_alias, 
+    sep = "|", remove_absent_IDs = NULL, quiet = TRUE)) %>%
+  dplyr::filter(gene_symbol %in% gene_impact$gene_name) %>%
+  dplyr::filter(GO_ID %in% V(Gobp)$name)
+
+# Obtain specific (child) GO terms and general (ancestor) GO terms
+buster <- makeCluster(numCores)
+
+all_GOBP <- as.list(GO.db::GOBPOFFSPRING)
+
+all_GOBP_list <- parLapply(
+  buster, seq_along(all_GOBP), function(i, all_GOBP, goa_bpdata){
+    terms <- c(names(all_GOBP[i]), all_GOBP[[i]])
+    unique(goa_bpdata$gene_symbol[which(goa_bpdata$GO_ID %in% terms)])},
+  all_GOBP = all_GOBP, goa_bpdata = goa_bpdata)
+
+names(all_GOBP_list) <- names(all_GOBP)
+all_GOBP_list <- all_GOBP_list[lengths(all_GOBP_list) > 0]
+all_GOBP_list <- all_GOBP_list[names(all_GOBP_list) %in% names(V(Gobp))]
+
+all_GOBP_df <- plyr::ldply(
+  all_GOBP_list, function(x){data.frame(gene_sym = x)}, .id = "go_term")
+
+stopCluster(buster)
+go_genes <- unique(unlist(all_GOBP_list))
+
+#### additional_annotations
+# Total sites from tdn and patient samples ----
+total_tdn_sites <- as.data.frame(cond_uniq_sites, row.names = NULL) %>%
+  dplyr::filter(timepoint == "d0") %>%
+  dplyr::mutate(pat_posid = paste0(patient, "-", posid)) %$%
+  dplyr::n_distinct(pat_posid)
+
+total_pat_sites <- as.data.frame(cond_uniq_sites, row.names = NULL) %>%
+  dplyr::filter(timepoint != "d0") %>%
+  dplyr::mutate(pat_posid = paste0(patient, "-", posid)) %$%
+  dplyr::n_distinct(pat_posid)
+
+
+# Analysis ----
+## Integration site enrichment through frequency analysis ----
+df1 <- dplyr::filter(
+    gene_impact, 
+    TP_num_patients >= 2,
+    TP_num_sites >= 10) %>%
+  dplyr::arrange(desc(pct_chg)) %>%
+  dplyr::mutate(id = seq_len(n())) %>%
+  dplyr::group_by(id) %>%
+  dplyr::mutate(freq_fisher_test = fisher.test(
+    matrix(
+      c(TDN_num_sites, TP_num_sites, total_tdn_sites, total_pat_sites), 
+      ncol = 2))$p.value) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(adj_freq_test = p.adjust(freq_fisher_test, method = "BH"))
+
+# Isolate significant genes with increased frequency of integration
+df1.1 <- dplyr::filter(
+    df1, freq_fisher_test <= 0.05 & pct_chg > 0
+  ) %>%
+  dplyr::arrange(desc(freq_diff)) %>%
+  dplyr::mutate(id = seq_len(n()))
+
+df1.2 <- dplyr::select(
+    df1.1, gene_name, TP_num_patients, TDN_num_sites, TP_num_sites, 
+    On_Onco_List, pct_chg
+  ) %>%
+  dplyr::arrange(desc(pct_chg)) %>%
+  dplyr::rename(
+    "Gene" = gene_name, "Num. Patients" = TP_num_patients, 
+    "TDN Sites" = TDN_num_sites, "Patient Sites" = TP_num_sites, 
+    "Onco-Related" = On_Onco_List, "Frequency Increase (%)" = pct_chg) %>%
+  as.data.frame()
+
+go1.1 <- fisher_hyper_GO_test(
+  df1.1$gene_name, all_GOBP_list, odds = FALSE, p_adjust = 'BH', 
+  lower_tail = FALSE, cores = numCores
+)
+
+go1.1 <- dplyr::filter(
+  go1.1, overlap_size >= min_GO_ovlp, GO_size <= max_GO_size, !is.na(GO_Term))
+
+go1.1$grp <- cluster_by_list_similarity(
+  keys = go1.1$GO_ID, keyList = all_GOBP_list, limitValues = df1.1$gene_name,
+  cores = numCores
+)
+
+go1.1$grp.go <- membership(cluster_louvain(
+  as.undirected(induced_subgraph(Gobp, go1.1$GO_ID))
+))[go1.1$GO_ID]
+
+kegg1.1 <- fisher_hyper_KEGG_test(
+  df1.1$gene_name, k_pathList, odds = FALSE, p_adjust = 'BH', 
+  lower_tail = FALSE, cores = numCores
+)
+
+kegg1.1 <- dplyr::filter(
+  kegg1.1, overlap_size >= min_KEGG_ovlp, 
+  KEGG_size <= max_KEGG_size, !is.na(KEGG_Term)
+)
+
+kegg1.1$grp <- cluster_by_list_similarity(
+  keys = kegg1.1$path_id, keyList = k_pathList, limitValues = df1.1$gene_name, 
+  cores = numCores
+)
+
+# Isolate significant genes with decreased frequency of integration
+df1.3 <- dplyr::filter(
+    df1, freq_fisher_test <= 0.05 & pct_chg < 0) %>%
+  dplyr::arrange(desc(freq_diff)) %>%
+  dplyr::mutate(id = seq_len(n()))
+
+df1.4 <- dplyr::select(
+    df1.3, gene_name, TP_num_patients, TDN_num_sites, TP_num_sites, 
+    On_Onco_List, pct_chg) %>%
+  dplyr::arrange(pct_chg) %>%
+  dplyr::rename(
+    "Gene" = gene_name, "Num. Patients" = TP_num_patients, 
+    "TDN Sites" = TDN_num_sites, "Patient Sites" = TP_num_sites, 
+    "Onco-Related" = On_Onco_List, "Frequency Increase (%)" = pct_chg) %>%
+  as.data.frame()
+
+go1.2 <- fisher_hyper_GO_test(
+  df1.3$gene_name, all_GOBP_list, odds = FALSE, p_adjust = 'BH', 
+  lower_tail = FALSE, cores = numCores
+)
+
+go1.2 <- dplyr::filter(
+  go1.2, overlap_size >= min_GO_ovlp, GO_size <= max_GO_size, !is.na(GO_Term)
+)
+
+go1.2$grp <- cluster_by_list_similarity(
+  keys = go1.2$GO_ID, keyList = all_GOBP_list, limitValues = df1.3$gene_name,
+  cores = numCores
+)
+
+go1.2$grp.go <- membership(cluster_louvain(
+  as.undirected(induced_subgraph(Gobp, go1.2$GO_ID))
+))[go1.2$GO_ID]
+
+kegg1.2 <- fisher_hyper_KEGG_test(
+  df1.3$gene_name, k_pathList, odds = FALSE, p_adjust = 'BH', 
+  lower_tail = FALSE, cores = numCores)
+
+kegg1.2 <- dplyr::filter(
+  kegg1.2, overlap_size >= min_KEGG_ovlp, 
+  KEGG_size <= max_KEGG_size, !is.na(KEGG_Term))
+
+kegg1.2$grp <- cluster_by_list_similarity(
+  keys = kegg1.2$path_id, keyList = k_pathList, limitValues = df1.3$gene_name, 
+  cores = numCores)
+
+
+## Identify most expanded clones ----
+df2 <- dplyr::arrange(gene_stats, desc(TP_peak_abund)) %>%
+  dplyr::filter(TP_peak_abund > 0) %>%
+  dplyr::mutate(id = seq_len(n()))
+
+# Partition the distribution and select only the top 1%
+abund_quants <- quantile(df2$TP_peak_abund, probs = seq(0, 1, 0.01))
+
+df2.1 <- dplyr::filter(
+  df2, TP_peak_abund >= abund_quants["99%"]) %>%
+  dplyr::arrange(desc(TP_peak_abund)) %>%
+  dplyr::mutate(id = seq_len(n()))
+
+df2.2 <- dplyr::select(
+    df2.1, gene_name, TP_num_patients, TP_peak_abund, TP_peak_relAbund,
+    abund_gini, On_Onco_List) %>%
+  dplyr::rename(
+    "Gene" = gene_name, "Num. Patients" = TP_num_patients, 
+    "Peak Abundance" = TP_peak_abund, "Peak Rel. Abund." = TP_peak_relAbund, 
+    "Clonal Gini Index" = abund_gini, "Onco-Related" = On_Onco_List)
+
+go2.1 <- fisher_hyper_GO_test(
+  df2.1$gene_name, all_GOBP_list, odds = FALSE, p_adjust = 'BH', 
+  lower_tail = FALSE, cores = numCores
+)
+
+go2.1 <- dplyr::filter(
+  go2.1, overlap_size >= min_GO_ovlp, GO_size <= max_GO_size, !is.na(GO_Term)
+)
+
+go2.1$grp <- cluster_by_list_similarity(
+  keys = go2.1$GO_ID, keyList = all_GOBP_list, limitValues = df2.1$gene_name,
+  cores = numCores
+)
+
+go2.1$grp.go <- membership(cluster_louvain(
+  as.undirected(induced_subgraph(Gobp, go2.1$GO_ID))
+))[go2.1$GO_ID]
+
+kegg2.1 <- fisher_hyper_KEGG_test(
+  df2.1$gene_name, k_pathList, odds = FALSE, p_adjust = 'BH', 
+  lower_tail = FALSE, cores = numCores
+)
+
+kegg2.1 <- dplyr::filter(
+  kegg2.1, overlap_size >= min_KEGG_ovlp, 
+  KEGG_size <= max_KEGG_size, !is.na(KEGG_Term)
+)
+
+kegg2.1$grp <- cluster_by_list_similarity(
+  keys = kegg2.1$path_id, keyList = k_pathList, limitValues = df2.1$gene_name, 
+  cores = numCores
+)
+
+
+## Identify genes observed over multiple timepoints within patients ----
+df3 <- gene_impact %>%
+  dplyr::filter(
+    TP_num_patients >= 2,
+    TP_num_sites >= 10, 
+    max_span > 1,
+    max_time > 90
+  )
+
+df3.1 <- df3 %>%
+  dplyr::select(
+    gene_name, long_count, max_time, max_span, pct_chg, TP_peak_abund)
+  
+df3.2 <- df3 %>%
+  dplyr::arrange(
+    desc(max_span), desc(max_time), desc(long_count), desc(TP_num_sites),
+    desc(TP_num_patients), On_Onco_List) %>%
+  dplyr::select(
+    gene_name, max_span, max_time, long_count, TP_num_patients, TP_num_sites, 
+    TP_peak_abund, On_Onco_List) %>%
+  dplyr::rename(
+    "Gene" = gene_name, "Obs. Count" = long_count, "Time Span" = max_span, 
+    "Longest Time" = max_time, "Num. Patients" = TP_num_patients, 
+    "Patient Sites" = TP_num_sites, "Peak Abund." = TP_peak_abund,
+    "Onco-Related" = On_Onco_List)
+
+go3.2 <- fisher_hyper_GO_test(
+  df3.2$Gene, all_GOBP_list, odds = FALSE, p_adjust = 'BH', 
+  lower_tail = FALSE, cores = numCores
+)
+
+go3.2 <- dplyr::filter(
+  go3.2, overlap_size >= min_GO_ovlp, GO_size <= max_GO_size, !is.na(GO_Term)
+)
+
+go3.2$grp <- cluster_by_list_similarity(
+  keys = go3.2$GO_ID, keyList = all_GOBP_list, limitValues = df3.2$Gene,
+  cores = numCores
+)
+
+go3.2$grp.go <- membership(cluster_louvain(
+  as.undirected(induced_subgraph(Gobp, go3.2$GO_ID))
+))[go3.2$GO_ID]
+
+kegg3.2 <- fisher_hyper_KEGG_test(
+  df3.2$Gene, k_pathList, odds = FALSE, p_adjust = 'BH', 
+  lower_tail = FALSE, cores = numCores
+)
+
+kegg3.2 <- dplyr::filter(
+  kegg3.2, overlap_size >= min_KEGG_ovlp, 
+  KEGG_size <= max_KEGG_size, !is.na(KEGG_Term)
+)
+
+kegg3.2$grp <- cluster_by_list_similarity(
+  keys = kegg3.2$path_id, keyList = k_pathList, limitValues = df3.2$Gene, 
+  cores = numCores
+)
+
+
+## Identify genes within scan stats clusters ----
+clus_df <- as.data.frame(cluster_list$timepoint_clusters, row.names = NULL) %>%
+  dplyr::mutate(id = seq_len(n())) %>%
+  dplyr::group_by(id) %>%
+  dplyr::mutate(
+    num_genes = suppressWarnings(length(unique(ref_genes$name2[
+      S4Vectors::subjectHits(GenomicRanges::findOverlaps(
+        cluster_list$timepoint_clusters[id], ref_genes
+      ))
+    ]))),
+    TP_num_sites = suppressWarnings(length(unique(tp_sites$posid[
+      S4Vectors::subjectHits(GenomicRanges::findOverlaps(
+        cluster_list$timepoint_clusters[id], tp_sites
+      ))
+    ])))
+  ) %>%
+  dplyr::ungroup() %>%
+  dplyr::arrange(target.min) %>%
+  dplyr::mutate(
+    clus.origin = "Timepoint",
+    id = seq_len(n())
+  )
+
+cluster_genes <- suppressWarnings(
+  unique(ref_genes$name2[
+    S4Vectors::subjectHits(GenomicRanges::findOverlaps(
+      cluster_list$timepoint_clusters, ref_genes
+    ))
+  ])
+)
+
+df4 <- dplyr::filter(
+    gene_impact, 
+    gene_name %in% cluster_genes, 
+    Cluster_target.min > 0,
+    TP_num_sites >= 5) %>% 
+  dplyr::arrange(Cluster_target.min, desc(TP_num_sites))
+
+df4.1 <- dplyr::select(
+    df4, gene_name, TP_num_patients, TDN_num_sites, TP_num_sites, 
+    Cluster_target.min, On_Onco_List
+  ) %>%
+  dplyr::rename(
+    "Gene" = gene_name, "Num. Patients" = TP_num_patients, 
+    "TDN Sites" = TDN_num_sites, "Patient Sites" = TP_num_sites, 
+    "Cluster Min. FDR" = Cluster_target.min, "Onco-Related" = On_Onco_List
+  )
+
+go4.1 <- fisher_hyper_GO_test(
+  df4$gene_name, all_GOBP_list, odds = FALSE, p_adjust = 'BH', 
+  lower_tail = FALSE, cores = numCores
+)
+
+go4.1 <- dplyr::filter(
+  go4.1, overlap_size >= min_GO_ovlp, GO_size <= max_GO_size, !is.na(GO_Term)
+)
+
+go4.1$grp <- cluster_by_list_similarity(
+  keys = go4.1$GO_ID, keyList = all_GOBP_list, limitValues = df4$gene_name,
+  cores = numCores
+)
+  
+go4.1$grp.go <- membership(cluster_louvain(
+  as.undirected(induced_subgraph(Gobp, go4.1$GO_ID))))[go4.1$GO_ID]
+
+kegg4.1 <- fisher_hyper_KEGG_test(
+  df4$gene_name, k_pathList, odds = FALSE, p_adjust = 'BH', 
+  lower_tail = FALSE, cores = numCores
+)
+
+kegg4.1 <- dplyr::filter(
+  kegg4.1, overlap_size >= min_KEGG_ovlp, 
+  KEGG_size <= max_KEGG_size, !is.na(KEGG_Term)
+)
+
+kegg4.1$grp <- cluster_by_list_similarity(
+  keys = kegg4.1$path_id, keyList = k_pathList, limitValues = df4$gene_name, 
+  cores = numCores
+)
+
+
+## Summarize findings ----
+# List of all genes identified by each criteria
+potential_genes <- list(
+  "Enrichment" = df1.2$Gene,
+  "Depletion" = df1.4$Gene,
+  "Abundance" = df2.2$Gene, 
+  "Longitudinal" = df3.2$Gene,
+  #"Clusters" = df4.1$Gene,
+  "Composite" = unique(c(
+    df1.2$Gene, df2.2$Gene, df3.2$Gene #, df4.1$Gene
+  ))
+)
+
+# Short summary table
+df5 <- data.frame(
+  criteria = names(potential_genes),
+  gene_count = sapply(potential_genes, length),
+  onco_genes = sapply(potential_genes, function(x){
+    100 * length(which(x %in% onco_genes)) / length(x)
+  }),
+  tumor_sups = sapply(potential_genes, function(x){
+    100 * length(which(x %in% tum_sups)) / length(x)
+  }),
+  human_lymph = sapply(potential_genes, function(x){
+    100 * length(which(x %in% bad_actors)) / length(x)
+  }),
+  cosmic_genes = sapply(potential_genes, function(x){
+    100 * length(which(x %in% cosmic_genes)) / length(x)
+  }),
+  tcga_genes = sapply(potential_genes, function(x){
+    100 * length(which(x %in% TCGA_list)) / length(x)
+  }),
+  clonal_hema_genes = sapply(potential_genes, function(x){
+    100 * length(which(x %in% clonal_hema_list)) / length(x)
+  }),
+  # go_genes = sapply(potential_genes, function(x){
+  #   length(which(unique(x) %in% all_GOBP_df$gene_sym))
+  # }),
+  # kegg_genes = sapply(potential_genes, function(x){
+  #   length(which(unique(x) %in% k_path_df$gene_sym))
+  # }),
+  row.names = NULL
+) 
+
+# Detailed table of all genes
+df6 <- dplyr::filter(
+    gene_impact, 
+    gene_name %in% potential_genes$Composite | 
+      gene_name %in% potential_genes$Depletion, 
+    TP_num_patients > 0
+  ) %>%
+  dplyr::mutate(
+    max_time = round(max_time),
+    enr_freq = gene_name %in% potential_genes$Enrichment,
+    dep_freq = gene_name %in% potential_genes$Depletion,
+    abund = gene_name %in% potential_genes$Abundance,
+    long = gene_name %in% potential_genes$Longitudinal
+    #clust = gene_name %in% potential_genes$Clusters
+  ) %>%
+  dplyr::group_by(loci, gene_name) %>%
+  dplyr::mutate(
+    crit_id = paste(
+      c("E", "D", "A", "L")[c(enr_freq, dep_freq, abund, long)], 
+      collapse = ""),
+    count = sum(c(enr_freq, abund, long)),
+    tcount = nchar(crit_id)
+  ) %>%
+  dplyr::ungroup() %>%
+  dplyr::arrange(
+    desc(rowSums(matrix(c(enr_freq, abund, long), ncol = 3))), 
+    desc(TP_num_patients))
+
+go6 <- fisher_hyper_GO_test(
+  potential_genes$Composite, all_GOBP_list, odds = FALSE, p_adjust = 'BH', 
+  lower_tail = FALSE, cores = numCores
+)
+
+go6 <- dplyr::filter(
+  go6, overlap_size >= min_GO_ovlp, GO_size <= max_GO_size, !is.na(GO_Term)
+)
+
+go6$grp <- cluster_by_list_similarity(
+  keys = go6$GO_ID, keyList = all_GOBP_list, limitValues = df6$gene_name,
+  cores = numCores
+)
+
+go6$grp.go <- membership(cluster_louvain(
+  as.undirected(induced_subgraph(Gobp, go6$GO_ID))
+))[go6$GO_ID]
+
+kegg6 <- fisher_hyper_KEGG_test(
+  potential_genes$Composite, k_pathList, odds = FALSE, p_adjust = 'BH', 
+  lower_tail = FALSE, cores = numCores
+)
+
+kegg6 <- dplyr::filter(
+  kegg6, overlap_size >= min_KEGG_ovlp, 
+  KEGG_size <= max_KEGG_size, !is.na(KEGG_Term)
+)
+
+kegg6$grp <- cluster_by_list_similarity(
+  keys = kegg6$path_id, keyList = k_pathList, limitValues = df6$gene_name, 
+  cores = numCores
+)
+
+# Detailed table of genes identified meeting the specified criteria (>= 3)
+df6.1 <- dplyr::filter(df6, count >= 3) %>%
+  dplyr::mutate(pct_chg = round(pct_chg, digits = 1)) %>%
+  dplyr::select(
+    gene_name, TP_num_patients, pct_chg, TP_peak_abund, max_time, crit_id
+  ) %>%
+  dplyr::rename(
+    "Gene" = gene_name, "Patients" = TP_num_patients, 
+    "Freq. Change (%)" = pct_chg, "Peak Abund." = TP_peak_abund, 
+    "Long. Obs." = max_time, "Criteria" = crit_id) %>%
+  as.data.frame()
+
+
+# Generate Random Integration sites for comparision ----
+random_sites <- selectRandomSites(
+  num = sum(gene_impact$TDN_num_sites, gene_impact$TP_num_sites),
+  refGenome = refGenome, 
+  setSeed = 714
+)
+
+random_sites <- hiAnnotator::getSitesInFeature(
+  random_sites, 
+  ref_genes, 
+  colnam = "in_gene", 
+  feature.colnam = "name2"
+)
+
+random_sites <- random_sites[random_sites$in_gene != FALSE]
+random_sites$is_onco <- random_sites$in_gene %in% onco_genes
+random_sites$is_tumSup <- random_sites$in_gene %in% tum_sups
+random_sites$is_badActor <- random_sites$in_gene %in% bad_actors
+random_sites$is_cosmic <- random_sites$in_gene %in% cosmic_genes
+random_sites$is_tcga <- random_sites$in_gene %in% TCGA_list
+random_sites$is_clonal_hema <- random_sites$in_gene %in% clonal_hema_list
+
+random_genes <- sample(gene_impact$gene_name, nrow(df6), replace = FALSE)
+
+gene_total_cnts <- gene_impact %>%
+  dplyr::distinct(gene_name) %>%
+  dplyr::mutate(
+    all = TRUE,
+    onco = gene_name %in% onco_genes,
+    tumSup = gene_name %in% tum_sups,
+    badActor = gene_name %in% bad_actors,
+    cosmic = gene_name %in% cosmic_genes,
+    tcga = gene_name %in% TCGA_list,
+    clonal_hema = gene_name %in% clonal_hema_list
+  ) %>%
+  dplyr::select(-gene_name) %>%
+  tidyr::gather(key = "group", value = "cnt") %>%
+  dplyr::group_by(group) %>%
+  dplyr::summarise(cnt = sum(cnt)) %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(pct = 100 * cnt / max(cnt)) %>%
+  as.data.frame()
+
+gene_list_pct <- structure(
+  gene_total_cnts$pct, names = gene_total_cnts$group
+)
+
+
+## Supporting data ----
+df7 <- dplyr::filter(df6, tcount >= 1) %>%
+  dplyr::arrange(desc(count), desc(pct_chg), desc(abund), desc(long)) %>%
+  dplyr::group_by(loci, gene_name) %>%
+  dplyr::mutate(method_group = paste(
+    c("Enrichment", "Depletion", "Abundance","Longitudinal")[
+      c(enr_freq, dep_freq, abund, long)], collapse = " - ")) %>%
+  dplyr::ungroup() %>% as.data.frame()
+
+sup_table_split <- unlist(sapply(2:4, function(i){
+  combn(1:4, i, simplify = FALSE)}), recursive = FALSE)
+
+df7_list <- lapply(sup_table_split, function(index){
+  cols <- 27 + index
+  df7[sapply(seq_len(nrow(df7)), function(i) all(as.logical(df7[i,cols]))),]
+})
+
+names(df7_list) <- sapply(sup_table_split, function(index){
+  paste(c("Enrichment", "Depletion", "Abundance", "Longitudinal")[
+    index], collapse = " - ")
+})
+
+df7_list <- df7_list[sapply(df7_list, nrow) > 0]
+
+output_impact <- dplyr::select(
+    df6, -TDN_sum_abund, -TP_sum_abund, -count, -tcount, -max_span, 
+    -Top_1pc_Abund, -Top_10pc_Abund
+  ) %>%
+  dplyr::mutate(
+    gene_name = paste0("'", gene_name),
+    TDN_peak_relAbund = round(TDN_peak_relAbund, digits = 3),
+    TP_peak_relAbund = round(TP_peak_relAbund, digits = 3),
+    abund_gini = round(abund_gini, digits = 3),
+    pct_chg = round(pct_chg, digits = 1)) %>%
+  dplyr::rename(
+    "Genomic_Loci" = loci, "Gene_Name" = gene_name, 
+    "Gene_Orientation" = gene_ort, "Gene_Width_(kb)" = gene_width, 
+    "Obs_TDN_Products" = TDN_num_patients, "Obs_Patients" = TP_num_patients, 
+    "Num_Sites_TDN" = TDN_num_sites, "Num_Sites_Patients" = TP_num_sites, 
+    "Peak_Abund_TDN" = TDN_peak_abund, "Peak_Abund_Patients" = TP_peak_abund, 
+    "Peak_RelAbund_TDN" = TDN_peak_relAbund, 
+    "Peak_RelAbund_Patients" = TP_peak_relAbund, 
+    "Longitudinal_Count" = long_count, "Last_Timepoint" = max_time, 
+    "Abund_Gini" = abund_gini, "Freq_TDN_Sites" = TDN_freq, 
+    "Freq_Patient_Sites" = TP_freq, "Freq_Difference" = freq_diff, 
+    "Percent_Freq_Change" = pct_chg, "Enrichment" = enr_freq, 
+    "Depletion" = dep_freq, "Abundance" = abund, "Longitudinal" = long,
+    #"Cluster" = clust, 
+    "Criteria" = crit_id
+  ) %>%
+  as.data.frame()
+
+unlink(list.files(
+  path = outputDir, pattern = "_cart19_all_goi_data.csv", full.names = TRUE
+))
+
+write.csv(
+  output_impact, 
+  file = file.path(
+    outputDir, paste0(gsub("-", "", Sys.Date()), "_cart19_all_goi_data.csv")), 
+  quote = TRUE, 
+  row.names = FALSE
+)
+
+```
+
+```{r captions, include=FALSE}
+# Figure captions ----
+fig1cap <- "Intersecting gene lists identified through the various selection criteria."
+tbl2cap <- "The most consistently observed genes from filtering by various criteria. The 'Criteria.' column is a count of how many times the gene was identified by these methods, while the 'Patients' column notes how many specimens collected from patients have had integration sites within the noted gene."
+```
+
+\newpage
+# Summary
+
+Lentiviral vectors integrate into genomes of targeted host cells (Tcells). These genomic locations of vector integrations are identifiable through integration site sequencing. Abundances of individual cell clones can be inferred by the sonicLength method ([**Berry *et al.* 2012**](https://www.ncbi.nlm.nih.gov/pubmed/22238265)).  
+
+In this report, we mined the data collected from integration site sequencing for `r length(unique(cond_uniq_sites$patient))` CART treated subjects. We constructed 4 gene lists based on: 1 & 2) increased / decreased integration site occurrence in patient samples relative to the initial transduction product, 3) peak clonal abundance, and 4) longitudinal clonal persistence. More about each of these criteria is below:
+
+* **Integration Frequency** is the rate at which integration sites are observed within a gene. This is compared between patient samples and the initial transduction product to score enrichment or depletion during growth in patients. The top of genes with higher patient sample integration frequency over transduction samples were chosen for study (p-value <= 0.05 after exclusion of genes with clones from less than 2 patients and less than 10 observed clones).
+
+* **Clonal Abundance** can be determined during analysis by quantifying the number of sites of linker ligation associated with each unique integration site. This method is further described in [**Berry *et al.* 2012**]( https://www.ncbi.nlm.nih.gov/pubmed/22238265). This allows clonal expansion to be quantified. The top 1% of the genes were selected for study based on their maximal peak clonal abundance.
+
+* **Longitudinal Observation** of clones is the quantification of observed timespans and last observed timepoints. The maximum value for clones within a gene were considered for characterization of the gene in this analysis. Genes were only considered if there were 10 or more integration sites isolated from at least two different patient samples. Genes were also not considered if they only consited of clones which were observed once or the last observed timepoint was less than 90 days from initial infusion.
+
+A point to keep in mind through all this analysis is that integration sites are sampled from a larger population. It would be rare for all integration sites in a sample to be represented in the sequence data.
+
+```{r summary_tbl1, child = file.path(scriptDir, "goi_child_templates", "summary_tbl1.rmd"), eval = nrow(df5) > 0}
+```
+
+```{r upset_fig1, child = file.path(scriptDir, "goi_child_templates", "upset_fig1.rmd"), eval = any(df6$tcount > 1)}
+```
+
+```{r summary_tbl2, child = file.path(scriptDir, "goi_child_templates", "summary_tbl2.rmd"), eval = nrow(df6.1) > 0}
+```
+
+```{r composite_go, child = file.path(scriptDir, "goi_child_templates", "composite_go.rmd"), eval = nrow(go6) > 0}
+```
+
+```{r composite_kegg, child = file.path(scriptDir, "goi_child_templates", "composite_kegg.rmd"), eval = nrow(kegg6) > 0}
+```
+
+```{r freq_enrich, child = file.path(scriptDir, "goi_child_templates", "integration_enrichment.rmd"), eval = nrow(df1.2) > 0}
+```
+
+```{r freq_deplete, child = file.path(scriptDir, "goi_child_templates", "integration_depletion.rmd"), eval = nrow(df1.4) > 0}
+```
+
+```{r abund_clones, child = file.path(scriptDir, "goi_child_templates", "abund_clones.rmd"), eval = nrow(df2.2) > 0}
+```
+
+```{r long_obs, child = file.path(scriptDir, "goi_child_templates", "long_observation.rmd"), eval = nrow(df3.2) > 0}
+```
+
+```{r clusters, child = file.path(scriptDir, "goi_child_templates", "clusters.rmd"), eval = FALSE}
+```
+
+\newpage
+# Reference Data
+
+The NCBI RefGenes data set was used to identify gene regions (hg38) while genes identified as onco-related were from the Bushman Lab curated list of [**onco-related genes**.](http://bushmanlab.org/links/genelists) 
+
+Gene Ontologies were extracted from the `GO.db` R-package (v3.4.1). KEGG pathways were acquired via interfacing with the KEGG web-server API through the `KEGGREST` R-package (v1.16.1). Gene lists, including RefSeq genes used for annotation of integration sites, were standardized to HGNC gene symbols (date: 2018-02-07). Groups identified in GO and KEGG analyses were determined from Jaccard distances between identified terms, followed by modularity-optimizing clustering from a weighted-undirected graph using a Louvain algorithm ([**Blondel *et al.* 2008**](doi:10.1088/1742-5468/2008/10/P10008)). Terms within groups of GO or KEGG terms have greater overlap of gene lists between themselves that between terms found in other groups. This method was implemented to help reduce the functional redundancy commonly observed in GO and overlapping pathways observed with KEGG.
+
+```{r comp_tbl, child = file.path(scriptDir, "goi_child_templates", "comprehensive_tbl.rmd"), eval = nrow(df6) > 0}
+```

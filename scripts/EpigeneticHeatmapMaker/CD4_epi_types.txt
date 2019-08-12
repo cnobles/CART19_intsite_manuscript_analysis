@@ -1,6 +1,9 @@
 Act-CD4-HDAC6
 Act-CD4-Tip60
 ActivatedNucleosomes
+Brd2_promoters
+Brd3_promoters
+Brd4_promoters
 CTCF
 H2AK5ac
 H2AK9ac
@@ -41,6 +44,8 @@ H4K5ac
 H4K8ac
 H4K91ac
 H4R3me2
+HP1a_promoters
+HP1b_promoters
 NRSF
 PolII
 Rest-CD4-CBP

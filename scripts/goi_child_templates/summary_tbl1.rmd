@@ -1,0 +1,219 @@
+\newpage
+```{r summary_tbl}
+sig_onco <- sapply(seq_len(nrow(df5)), function(i){
+  
+  if(df5$gene_count[i] == 0) return(NA)
+
+  list_len <- sum(onco_genes %in% gene_impact$gene_name)
+  
+  mat <- matrix(c(
+      df5$gene_count[i] * df5$onco_genes[i] / 100,
+      df5$gene_count[i] * (1 - (df5$onco_genes[i] / 100)),
+      list_len - df5$gene_count[i] * df5$onco_genes[i] / 100,
+      length(unique(gene_impact$gene_name)) - list_len - 
+        df5$gene_count[i] + df5$gene_count[i] * df5$onco_genes[i] / 100
+    ),
+    ncol = 2
+  )
+
+  fisher.test(mat)$p.value
+  
+})
+
+
+sig_tumSup <- sapply(seq_len(nrow(df5)), function(i){
+  
+  if(df5$gene_count[i] == 0) return(NA)
+  
+  list_len <- sum(tum_sups %in% gene_impact$gene_name)
+  
+  mat <- matrix(c(
+      df5$gene_count[i] * df5$tumor_sups[i] / 100,
+      df5$gene_count[i] * (1 - (df5$tumor_sups[i] / 100)),
+      list_len - df5$gene_count[i] * df5$tumor_sups[i] / 100,
+      length(unique(gene_impact$gene_name)) - list_len - 
+        df5$gene_count[i] + df5$gene_count[i] * df5$tumor_sups[i] / 100
+    ),
+    ncol = 2
+  )
+  
+  fisher.test(mat)$p.value
+  
+})
+
+
+sig_lymph <- sapply(seq_len(nrow(df5)), function(i){
+
+  if(df5$gene_count[i] == 0) return(NA)
+
+  list_len <- sum(bad_actors %in% gene_impact$gene_name)
+  
+  mat <- matrix(c(
+      df5$gene_count[i] * df5$human_lymph[i] / 100,
+      df5$gene_count[i] * (1 - (df5$human_lymph[i] / 100)),
+      list_len - df5$gene_count[i] * df5$human_lymph[i] / 100,
+      length(unique(gene_impact$gene_name)) - list_len - 
+        df5$gene_count[i] + df5$gene_count[i] * df5$human_lymph[i] / 100
+    ),
+    ncol = 2
+  )
+  
+  fisher.test(mat)$p.value
+    
+})
+
+
+sig_cosmic <- sapply(seq_len(nrow(df5)), function(i){
+
+  if(df5$gene_count[i] == 0) return(NA)
+  
+  list_len <- sum(cosmic_genes %in% gene_impact$gene_name)
+
+  mat <- matrix(c(
+      df5$gene_count[i] * df5$cosmic_genes[i] / 100,
+      df5$gene_count[i] * (1 - (df5$cosmic_genes[i] / 100)),
+      list_len - df5$gene_count[i] * df5$cosmic_genes[i] / 100,
+      length(unique(gene_impact$gene_name)) - list_len - 
+        df5$gene_count[i] + df5$gene_count[i] * df5$cosmic_genes[i] / 100
+    ),
+    ncol = 2
+  )
+
+  fisher.test(mat)$p.value
+  
+})
+
+
+sig_tcga <- sapply(seq_len(nrow(df5)), function(i){
+
+  if(df5$gene_count[i] == 0) return(NA)
+
+  list_len <- sum(TCGA_list %in% gene_impact$gene_name)
+  
+  mat <- matrix(c(
+      df5$gene_count[i] * df5$tcga_genes[i] / 100,
+      df5$gene_count[i] * (1 - (df5$tcga_genes[i] / 100)),
+      list_len - df5$gene_count[i] * df5$tcga_genes[i] / 100,
+      length(unique(gene_impact$gene_name)) - list_len - 
+        df5$gene_count[i] + df5$gene_count[i] * df5$tcga_genes[i] / 100
+    ),
+    ncol = 2
+  )
+
+  fisher.test(mat)$p.value
+  
+})
+
+
+sig_hema <- sapply(seq_len(nrow(df5)), function(i){
+
+  if(df5$gene_count[i] == 0) return(NA)
+  
+  list_len <- sum(clonal_hema_list %in% gene_impact$gene_name)
+
+  mat <- matrix(c(
+      df5$gene_count[i] * df5$clonal_hema_genes[i] / 100,
+      df5$gene_count[i] * (1 - (df5$clonal_hema_genes[i] / 100)),
+      list_len - df5$gene_count[i] * df5$clonal_hema_genes[i] / 100,
+      length(unique(gene_impact$gene_name)) - list_len - 
+        df5$gene_count[i] + df5$gene_count[i] * df5$clonal_hema_genes[i] / 100
+    ),
+    ncol = 2
+  )
+
+  fisher.test(mat)$p.value
+  
+})
+
+
+df5_print <- df5 %>%
+  dplyr::mutate(
+    onco_genes = paste0(
+      ifelse(sig_onco <= 0.05, "*", ""), 
+      "/",
+      ifelse(
+        p.adjust(sig_onco, method = "BH") <= 0.05, 
+        paste0("* ", format(onco_genes, digits = 3)),
+        paste0(" ", format(onco_genes, digits = 3))
+      )
+    ),
+    tumor_sups = paste0(
+      ifelse(sig_tumSup <= 0.05, "*", ""), 
+      "/",
+      ifelse(
+        p.adjust(sig_tumSup, method = "BH") <= 0.05, 
+        paste0("* ", format(tumor_sups, digits = 3)),
+        paste0(" ", format(tumor_sups, digits = 3))
+      )
+    ),
+    human_lymph = paste0(
+      ifelse(sig_lymph <= 0.05, "*", ""), 
+      "/",
+      ifelse(
+        p.adjust(sig_lymph, method = "BH") <= 0.05, 
+        paste0("* ", format(human_lymph, digits = 3)),
+        paste0(" ", format(human_lymph, digits = 3))
+      )
+    ),
+    cosmic_genes = paste0(
+      ifelse(sig_cosmic <= 0.05, "*", ""), 
+      "/",
+      ifelse(
+        p.adjust(sig_cosmic, method = "BH") <= 0.05, 
+        paste0("* ", format(cosmic_genes, digits = 3)),
+        paste0(" ", format(cosmic_genes, digits = 3))
+      )
+    ),
+    tcga_genes = paste0(
+      ifelse(sig_tcga <= 0.05, "*", ""), 
+      "/",
+      ifelse(
+        p.adjust(sig_tcga, method = "BH") <= 0.05, 
+        paste0("* ", format(tcga_genes, digits = 3)),
+        paste0(" ", format(tcga_genes, digits = 3))
+      )
+    ),
+    clonal_hema_genes = paste0(
+      ifelse(sig_hema <= 0.05, "*", ""), 
+      "/",
+      ifelse(
+        p.adjust(sig_hema, method = "BH") <= 0.05, 
+        paste0("* ", format(clonal_hema_genes, digits = 3)),
+        paste0(" ", format(clonal_hema_genes, digits = 3))
+      )
+    )
+  ) %>%
+  dplyr::rename(
+    "Criteria" = criteria, "Count" = gene_count, "Related (%)" = onco_genes, 
+    "Suppressors (%)" = tumor_sups, "Related (%)" = human_lymph, 
+    "Related (%)" = cosmic_genes, "Related (%)" = tcga_genes, 
+    "Related (%)" = clonal_hema_genes #, "Genes" = go_genes, "Genes" = kegg_genes
+  )
+
+options(knitr.kable.NA = "--")
+
+kable(
+    df5_print, format = "latex", booktabs = TRUE, 
+    caption = "Summary of each filtering criteria.", 
+    align = "c", digits = 1, format.args = list(big.mark = ",")
+  ) %>%
+  kable_styling(latex_options = c("hold_position", "scale_down")) %>%
+  add_header_above(
+    c(
+      " ", "Gene", "Onco", "Tumor", "Lymphoma", "COSMIC", "TCGA", "Clonal Hema." #,"GO-annot.", "KEGG-annot."
+    )
+  )
+
+```
+
+**Table 1** summarizes the size and contents of each criteria gene list identified by the various methods. Significance of overlap between lists are displayed by asterisks before the percent of genes identifed from the criteria list which overlap with the column specified group. The asterisk to the left of the "/" indicates a p-value below 0.05 *before* multiple comparison corrections, while an asterisk to the right of the "/" indicates a p-value below 0.05 *after* multiple comparison corrections. Significance was tested using Fishers Exact test and multiple comparison corrections were made using a Benjamini-Hochberg (FDR) method for each criteria based list.
+
+Percent of all analyzed transcription units associated with each list as as follows: 
+
+* Onco Related: `r unname(format(round(gene_list_pct["onco"], digits = 2)))`%
+* Tumor Suppressors: `r unname(format(round(gene_list_pct["tumSup"], digits = 2)))`%
+* Lymphoma Related: `r unname(format(round(gene_list_pct["badActor"], digits = 2)))`%
+* COSMIC Related: `r unname(format(round(gene_list_pct["cosmic"], digits = 2)))`%
+* TCGA Related: `r unname(format(round(gene_list_pct["tcga"], digits = 2)))`%
+* Clonal Hematopoiesis Related: `r unname(format(round(gene_list_pct["clonal_hema"], digits = 2)))`%
+

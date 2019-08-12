@@ -25,59 +25,116 @@ cluster_by_list_similarity <- function(keys, keyList,
   packs <- c("igraph")
   packsLoaded <- suppressMessages(sapply(packs, require, character.only = TRUE))
   stopifnot(all(packsLoaded))
-  if(cores > 1){
-    stopifnot(require("parallel"))
-    buster <- makeCluster(min(cores, detectCores()))
-  }
   
-  # Isolate working list
-  keyList <- keyList[keys]
-  
-  if(!is.null(limitValues)){
-    keyList <- lapply(keyList, function(x) x[x %in% limitValues])
-  }
-  
-  # Determine similarity index of each key from each other
-  if(type == "jaccard"){
-    if(cores > 1){
-      dist_mat <- do.call(cbind, parLapply(buster, keyList, function(x, kL){
-        sapply(kL, function(y){
-          length(which(x %in% y)) / length(unique(c(x, y)))})
-      }, kL = keyList))
-      stopCluster(buster)
+  if( length(keys) == 0 ){
+    
+    if( returnGraph ){
+      
+      return(
+        list(
+          "membership" = integer(), 
+          "graph" = igraph::empty_graph(), 
+          "community" = integer()
+        )
+      )
+      
     }else{
-      dist_mat <- do.call(cbind, lapply(keyList, function(x, kL){
-        sapply(kL, function(y){
-          length(which(x %in% y)) / length(unique(c(x, y)))})
-      }, kL = keyList))
+      
+      return(integer())
+      
     }
-  }else if(type == "maxSim"){
-    if(cores > 1){
-      dist_mat <- do.call(cbind, parLapply(buster, keyList, function(x, kL){
-        sapply(kL, function(y){
-          length(which(x %in% y)) / min(length(unique(x)), length(unique(y)))})
-      }, kL = keyList))
-      stopCluster(buster)
-    }else{
-      dist_mat <- do.call(cbind, lapply(keyList, function(x, kL){
-        sapply(kL, function(y){
-          length(which(x %in% y)) / min(length(unique(x)), length(unique(y)))})
-      }, kL = keyList))
-    }
+    
   }else{
-    stop("Please set 'type' to either 'jaccard' or 'maxSim'.")
-  }
-
-  # Generate weighted (distance based) graph and cluster
-  g <- graph_from_adjacency_matrix(
-    adjmatrix = dist_mat, mode = "lower", weighted = TRUE, diag = FALSE)
-  clus <- cluster_louvain(g)
   
-  if(returnGraph){
-    return(
-      list("membership" = membership(clus), "graph" = g, "community" = clus))
-  }else{
-    return(membership(clus))
+    if( cores > 1 ){
+      stopifnot(require("parallel"))
+      buster <- makeCluster(min(cores, detectCores()))
+    }
+    
+    # Isolate working list
+    keyList <- keyList[keys]
+    
+    if( !is.null(limitValues) ){
+      keyList <- lapply(keyList, function(x) x[x %in% limitValues])
+    }
+    
+    # Determine similarity index of each key from each other
+    if( type == "jaccard" ){
+      
+      if(cores > 1){
+        
+        dist_mat <- do.call(cbind, parLapply(
+          buster, 
+          keyList, 
+          function(x, kL){
+            sapply(kL, function(y){
+              length(which(x %in% y)) / length(unique(c(x, y)))
+            })
+          }, 
+          kL = keyList
+        ))
+        
+        stopCluster(buster)
+        
+      }else{
+        
+        dist_mat <- do.call(cbind, lapply(
+          keyList, 
+          function(x, kL){
+            sapply(kL, function(y){
+              length(which(x %in% y)) / length(unique(c(x, y)))
+            })
+          }, 
+          kL = keyList
+        ))
+        
+      }
+      
+    }else if( type == "maxSim" ){
+      if( cores > 1 ){
+        
+        dist_mat <- do.call(cbind, parLapply(
+          buster, keyList, function(x, kL){
+            sapply(kL, function(y){
+              length(which(x %in% y)) / 
+                min(length(unique(x)), length(unique(y)))
+              }
+            )
+          }, 
+          kL = keyList
+        ))
+        
+        stopCluster(buster)
+        
+      }else{
+        
+        dist_mat <- do.call(cbind, lapply(keyList, function(x, kL){
+          sapply(kL, function(y){
+            length(which(x %in% y)) / min(length(unique(x)), length(unique(y)))})
+        }, kL = keyList))
+        
+      }
+      
+    }else{
+      
+      stop("Please set 'type' to either 'jaccard' or 'maxSim'.")
+      
+    }
+  
+    # Generate weighted (distance based) graph and cluster
+    g <- graph_from_adjacency_matrix(
+      adjmatrix = dist_mat, mode = "lower", weighted = TRUE, diag = FALSE
+    )
+    
+    clus <- cluster_louvain(g)
+    
+    if(returnGraph){
+      return(
+        list("membership" = membership(clus), "graph" = g, "community" = clus))
+    }else{
+      return(membership(clus))
+    }
+    
   }
 }
 

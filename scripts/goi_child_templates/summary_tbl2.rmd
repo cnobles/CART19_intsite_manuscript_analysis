@@ -1,0 +1,10 @@
+\newpage
+```{r summary_tbl2}
+kable(
+    df6.1, format = "latex", booktabs = TRUE,
+    caption = tbl2cap, align = "c"
+  ) %>%
+  kableExtra::kable_styling(
+    latex_options = c("hold_position")
+  )
+```

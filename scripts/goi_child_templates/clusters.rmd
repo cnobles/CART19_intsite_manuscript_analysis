@@ -1,0 +1,16 @@
+\newpage
+## Genes within Clusters
+
+```{r cluster_tbl}
+kable(
+    head(df4.1, n = 50), format = "latex", booktabs = TRUE, 
+    caption = paste(
+      "Table of top", nrow(head(df4.1, n = 50)), 
+      "genes from clusters identified by minimum FDR."), 
+    align = "c", digits = 4
+  ) %>%
+  kableExtra::kable_styling(
+    latex_options = c("hold_position"),
+    font_size = 9
+  )
+```

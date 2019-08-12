@@ -1,0 +1,15 @@
+\newpage
+## Integration Frequency (Depletion)
+```{r depletion_tbl}
+kable(
+    head(df1.4, n = 50), format = "latex", booktabs = TRUE, 
+    caption = paste(
+      "Table of top", nrow(head(df1.4, n = 50)), 
+      "genes with the most frequent clonal depletion."), 
+    align = "c", digits = 1
+  ) %>%
+  kableExtra::kable_styling(
+    latex_options = c("hold_position"),
+    font_size = 9
+  )
+```

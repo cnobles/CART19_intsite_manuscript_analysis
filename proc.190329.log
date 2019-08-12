@@ -1,576 +1,0 @@
-[ 2019-03-29 09:02:06 ] Starting setup and checking installed packages.
- Loaded R.Package    
- TRUE   igraph       
- TRUE   Matrix       
- TRUE   parallel     
- TRUE   reldist      
- TRUE   reshape2     
- TRUE   RMySQL       
- TRUE   data.table   
- TRUE   vegan        
- TRUE   lubridate    
- TRUE   ggrepel      
- TRUE   scales       
- TRUE   grid         
- TRUE   gridExtra    
- TRUE   RColorBrewer 
- TRUE   knitr        
- TRUE   magrittr     
- TRUE   pander       
- TRUE   BiasedUrn    
- TRUE   foreach      
- TRUE   UpSetR       
- TRUE   tidyverse    
- TRUE   BiocGenerics 
- TRUE   Biostrings   
- TRUE   GenomicRanges
- TRUE   geneRxCluster
- TRUE   hiAnnotator  
- TRUE   sonicLength  
- TRUE   KEGGREST     
- TRUE   GO.db        
- TRUE   gintools     
- TRUE   spraphal     
-
-[ 2019-03-29 09:02:15 ] All required packages installed from sources.
-[ 2019-03-29 09:02:15 ] Number of cores to use:  24 
-[ 2019-03-29 09:02:15 ] Initial processing started...
-[ 2019-03-29 09:02:15 ]
- Initial Processing for CART19 Specimens
- Author: Christopher Nobles, Ph.D.
- Process Date:  2019-03-29 
-
-***************************************
-
-[ 2019-03-29 09:02:15 ] Loading R-packages.
-[ 2019-03-29 09:02:15 ] All R-packages loaded successfully.
-
-
-Parameters           Values                  
--------------------- ------------------------
-Genome:              hg38                    
-Specimen_DB Group:   specimen_management     
-IntSites_DB Group:   intsites_cart_20180808  
-IntSites_DB Name:    intsites_cart_20180808  
-Maximum Cores:       24                      
-Analysis Date:       2019-03-29              
-Clinical Trial:      CART19                  
-Include TCR/IGH:     FALSE                   
-
-
-
-Directories   Paths                                                          
-------------- ---------------------------------------------------------------
-Working:      /home/nobles/CART19_intsite_manuscript_analysis                
-Utilities:    /home/nobles/CART19_intsite_manuscript_analysis/utils          
-Output:       /home/nobles/CART19_intsite_manuscript_analysis/data           
-VCN Data:     /home/nobles/CART19_intsite_manuscript_analysis/data/vcn_data  
-
-[ 2019-03-29 09:02:16 ] Specimen data found, formatting...
-[ 2019-03-29 09:02:17 ] Specimen data acquired.
-[ 2019-03-29 09:02:17 ] Connecting to Integration Site Database...
-[ 2019-03-29 09:02:21 ] Acquired unique integration site data from 106,881,882 sequence reads.
-[ 2019-03-29 09:02:37 ] Acquired multihit integration site data from 7,565,392 sequence reads.
-[ 2019-03-29 09:02:37 ] Integration site data acquired from database.
-[ 2019-03-29 09:02:37 ] Integrations sites acquired for  224  out of  259 .
-[ 2019-03-29 09:02:53 ] Processing integration site data...
-[ 2019-03-29 09:03:00 ] Refining integration template breakpoints ( 1  of  2 ).
-[ 2019-03-29 09:06:36 ] Standardizing integration template positions ( 1  of  2 ).
-[ 2019-03-29 09:10:09 ] Refining integration template breakpoints ( 2  of  2 ).
-[ 2019-03-29 09:33:51 ] Standardizing integration template positions ( 2  of  2 ).
-[ 2019-03-29 09:40:04 ] Breakpoint refinement and positional standardizing completed.
-[ 2019-03-29 09:40:04 ] Writing unique integration site data to output directory.
-[ 2019-03-29 09:40:05 ] Normalizing multihit clusters...
-[ 2019-03-29 09:50:21 ] Multihit cluster IDs normalized.
-[ 2019-03-29 09:50:41 ] Loading and consolidating VCN data...
-[ 2019-03-29 09:50:41 ] Writing VCN data to output directory.
-[ 2019-03-29 09:50:41 ] Conducting contamination filtering of unique integration sites...
-[ 2019-03-29 09:51:52 ] Number of crossover sites identified:  1203 
-[ 2019-03-29 09:51:59 ] Number of crossover sites sharing breakpoints:  83 
-[ 2019-03-29 09:52:16 ] Final count of sites needing correction:  3 
-[ 2019-03-29 09:52:16 ] Reassigning reads to correct patient...
-[ 2019-03-29 09:52:16 ] Writing filtered unique integration sites to output directory.
-[ 2019-03-29 09:52:17 ] Initial processing has competed.
-[ 2019-03-29 09:52:17 ] Output files can be found at: /home/nobles/CART19_intsite_manuscript_analysis/data
-[ 2019-03-29 09:52:18 ] Running 'proc_env_setup.R'... (Processing step 1 of 7)
-[ 2019-03-29 09:52:19 ] Running 'uniq_process_and_annotate.R'... (Processing step 2 of 7)
-[ 2019-03-29 09:53:37 ] Running 'process_scan_statistics.R'... (Processing step 3 of 7)
-[ 2019-03-29 09:56:31 ] Running 'summarize_intsites.R'... (Processing step 4 of 7)
-[ 2019-03-29 10:08:10 ] Running 'consolidate_genes_of_interest.R'... (Processing step 5 of 7)
-[ 2019-03-29 10:13:36 ] Running 'genic_impact.R'... (Processing step 6 of 7)
-[ 2019-03-29 10:14:47 ] Running 'intergenic_impact.R'... (Processing step 7 of 7)
-[ 2019-03-29 10:14:58 ] Generating heatmaps using GenomicHeatmapMaker and EpigeneticHeatmapMaker...
-$c
-[1] "utils/INSPIIRED.yml"
-
-$file
-[1] "data/manuscript_std_heatmap_sites.csv"
-
-$output_dir
-[1] "data/manuscript_genomic_std_heatmap"
-
-$ref_genome
-[1] "hg38"
-
-$sample_gtsp
-[1] "data/manuscript_std_heatmap_samples.csv"
-
-$utils
-[1] "utils"
-
-     sampleName          GTSP patient
-1 D28 - CR_PRtd D28 - CR_PRtd    Mock
-2   D28 - PR_NR   D28 - PR_NR    Mock
-3 TDN - CR_PRtd TDN - CR_PRtd    Mock
-4   TDN - PR_NR   TDN - PR_NR    Mock
-
-D28 - CR_PRtd   D28 - PR_NR TDN - CR_PRtd   TDN - PR_NR 
-         4915          2149          4999          5000 
-     sampleName          GTSP patient
-1 D28 - CR_PRtd D28 - CR_PRtd    Mock
-2   D28 - PR_NR   D28 - PR_NR    Mock
-3 TDN - CR_PRtd TDN - CR_PRtd    Mock
-4   TDN - PR_NR   TDN - PR_NR    Mock
-Act-CD4-HDAC6
-Act-CD4-Tip60
-ActivatedNucleosomes
-CTCF
-H2AK5ac
-H2AK9ac
-H2AZ
-H2BK120ac
-H2BK12ac
-H2BK20ac
-H2BK5ac
-H2BK5me1
-H3K14ac
-H3K18ac
-H3K23ac
-H3K27ac
-H3K27me1
-H3K27me2
-H3K27me3
-H3K36ac
-H3K36me1
-H3K36me3
-H3K4ac
-H3K4me1
-H3K4me2
-H3K4me3
-H3K79me1
-H3K79me2
-H3K79me3
-H3K9ac
-H3K9me1
-H3K9me2
-H3K9me3
-H3R2me1
-H3R2me2
-H4K12ac
-H4K16ac
-H4K20me1
-H4K20me3
-H4K5ac
-H4K8ac
-H4K91ac
-H4R3me2
-NRSF
-PolII
-Rest-CD4-CBP
-Rest-CD4-HDAC1
-Rest-CD4-HDAC2
-Rest-CD4-HDAC3
-Rest-CD4-HDAC6
-Rest-CD4-MOF
-Rest-CD4-p300
-Rest-CD4-PCAF
-Rest-CD4-Tip60
-RestingNucleosomes
-
-D28 - CR_PRtd   D28 - PR_NR TDN - CR_PRtd   TDN - PR_NR 
-         4915          2149          4999          5000 
-[ 2019-03-29 10:25:26 ] Starting report generation, first goi report...
-  |                                                                         |                                                                 |   0%  |                                                                         |..                                                               |   4%
-  ordinary text without R code
-
-  |                                                                         |.....                                                            |   7%
-label: setup (with options) 
-List of 1
- $ include: logi FALSE
-
-  |                                                                         |.......                                                          |  11%
-  ordinary text without R code
-
-  |                                                                         |.........                                                        |  14%
-label: analysis (with options) 
-List of 1
- $ include: logi FALSE
-
-  |                                                                         |............                                                     |  18%
-  ordinary text without R code
-
-  |                                                                         |..............                                                   |  21%
-label: captions (with options) 
-List of 1
- $ include: logi FALSE
-
-  |                                                                         |................                                                 |  25%
-   inline R code fragments
-
-  |                                                                         |...................                                              |  29%
-label: summary_tbl
-  |                                                                         |.....................                                            |  32%
-   inline R code fragments
-
-  |                                                                         |.......................                                          |  36%
-label: upset_summary_plot (with options) 
-List of 2
- $ fig.height: num 5
- $ fig.cap   : symbol fig1cap
-
-  |                                                                         |..........................                                       |  39%
-  ordinary text without R code
-
-  |                                                                         |............................                                     |  43%
-label: summary_tbl2
-  |                                                                         |..............................                                   |  46%
-  ordinary text without R code
-
-  |                                                                         |................................                                 |  50%
-label: all_GO_tbls
-  |                                                                         |...................................                              |  54%
-  ordinary text without R code
-
-  |                                                                         |.....................................                            |  57%
-label: kegg_tbls
-  |                                                                         |.......................................                          |  61%
-  ordinary text without R code
-
-  |                                                                         |..........................................                       |  64%
-label: enrichment_tbl
-  |                                                                         |............................................                     |  68%
-  ordinary text without R code
-
-  |                                                                         |..............................................                   |  71%
-label: depletion_tbl
-  |                                                                         |.................................................                |  75%
-  ordinary text without R code
-
-  |                                                                         |...................................................              |  79%
-label: top_abundance_tbl
-  |                                                                         |.....................................................            |  82%
-  ordinary text without R code
-
-  |                                                                         |........................................................         |  86%
-label: long_obs_tbl
-  |                                                                         |..........................................................       |  89%
-  ordinary text without R code
-
-  |                                                                         |............................................................     |  93%
-label: cluster_tbl
-  |                                                                         |...............................................................  |  96%
-  ordinary text without R code
-
-  |                                                                         |.................................................................| 100%
-label: sup_table
-
-/usr/bin/pandoc +RTS -K512m -RTS cart19_goi_report.archive.v1.utf8.md --to latex --from markdown+autolink_bare_uris+ascii_identifiers+tex_math_single_backslash --output /home/nobles/CART19_intsite_manuscript_analysis/reports/cart19_goi_report.archive.v1.pdf --table-of-contents --toc-depth 2 --template /home/nobles/R/x86_64-pc-linux-gnu-library/3.4/rmarkdown/rmd/latex/default-1.15.2.tex --highlight-style espresso --latex-engine xelatex --variable graphics=yes --include-in-header /home/nobles/tmp/RtmpFBfAbQ/rmarkdown-str2a5348b8a5c5.html 
-
-[ 2019-03-29 10:33:32 ] Second report for manuscript figures...
-  |                                                                         |                                                                 |   0%  |                                                                         |.                                                                |   2%
-   inline R code fragments
-
-  |                                                                         |...                                                              |   4%
-label: setup (with options) 
-List of 1
- $ include: logi FALSE
-
-  |                                                                         |....                                                             |   6%
-  ordinary text without R code
-
-  |                                                                         |.....                                                            |   8%
-label: kegg_pathways (with options) 
-List of 1
- $ include: logi FALSE
-
-  |                                                                         |.......                                                          |  10%
-  ordinary text without R code
-
-  |                                                                         |........                                                         |  12%
-label: go_terms (with options) 
-List of 1
- $ include: logi FALSE
-
-  |                                                                         |.........                                                        |  14%
-  ordinary text without R code
-
-  |                                                                         |...........                                                      |  16%
-label: fig1B (with options) 
-List of 2
- $ fig.width : num 7.5
- $ fig.height: num 3.5
-
-  |                                                                         |............                                                     |  18%
-  ordinary text without R code
-
-  |                                                                         |.............                                                    |  20%
-label: specimen_barplots
-  |                                                                         |...............                                                  |  22%
-  ordinary text without R code
-
-  |                                                                         |................                                                 |  24%
-label: fig1C (with options) 
-List of 2
- $ fig.width : num 5
- $ fig.height: num 5
-
-  |                                                                         |.................                                                |  27%
-  ordinary text without R code
-
-  |                                                                         |...................                                              |  29%
-label: clonal_skewing_across_patients
-  |                                                                         |....................                                             |  31%
-  ordinary text without R code
-
-  |                                                                         |.....................                                            |  33%
-label: fig2ABC (with options) 
-List of 2
- $ fig.width : num 7
- $ fig.height: num 3
-
-  |                                                                         |.......................                                          |  35%
-  ordinary text without R code
-
-  |                                                                         |........................                                         |  37%
-label: fig2D (with options) 
-List of 2
- $ fig.width : num 5
- $ fig.height: num 4
-
-  |                                                                         |.........................                                        |  39%
-  ordinary text without R code
-
-  |                                                                         |...........................                                      |  41%
-label: fig2E (with options) 
-List of 2
- $ fig.width : num 3
- $ fig.height: num 3.5
-
-  |                                                                         |............................                                     |  43%
-  ordinary text without R code
-
-  |                                                                         |.............................                                    |  45%
-label: fig3AB (with options) 
-List of 3
- $ fig.width : num 9
- $ fig.height: num 6
- $ eval      : logi TRUE
-
-  |                                                                         |...............................                                  |  47%
-  ordinary text without R code
-
-  |                                                                         |................................                                 |  49%
-label: generate_heatmap_data (with options) 
-List of 1
- $ eval: logi FALSE
-
-  |                                                                         |.................................                                |  51%
-  ordinary text without R code
-
-  |                                                                         |..................................                               |  53%
-label: fig4ABC (with options) 
-List of 2
- $ fig.width : num 9
- $ fig.height: num 6
-
-  |                                                                         |....................................                             |  55%
-  ordinary text without R code
-
-  |                                                                         |.....................................                            |  57%
-label: pop_summary
-  |                                                                         |......................................                           |  59%
-  ordinary text without R code
-
-  |                                                                         |........................................                         |  61%
-label: fig4DE (with options) 
-List of 2
- $ fig.width : num 4
- $ fig.height: num 3
-
-  |                                                                         |.........................................                        |  63%
-  ordinary text without R code
-
-  |                                                                         |..........................................                       |  65%
-label: model_setup
-  |                                                                         |............................................                     |  67%
-  ordinary text without R code
-
-  |                                                                         |.............................................                    |  69%
-label: model_analysis
-  |                                                                         |..............................................                   |  71%
-  ordinary text without R code
-
-  |                                                                         |................................................                 |  73%
-label: fig5AB (with options) 
-List of 2
- $ fig.height: num 3.5
- $ fig.width : num 7
-
-  |                                                                         |.................................................                |  76%
-  ordinary text without R code
-
-  |                                                                         |..................................................               |  78%
-label: fig5CD (with options) 
-List of 3
- $ fig.height: num 6
- $ fig.width : num 10.2
- $ out.width : chr "80%"
-
-  |                                                                         |....................................................             |  80%
-  ordinary text without R code
-
-  |                                                                         |.....................................................            |  82%
-label: fig5EFG (with options) 
-List of 2
- $ fig.height: num 6
- $ fig.width : num 4
-
-  |                                                                         |......................................................           |  84%
-  ordinary text without R code
-
-  |                                                                         |........................................................         |  86%
-label: pat_table
-  |                                                                         |.........................................................        |  88%
-  ordinary text without R code
-
-  |                                                                         |..........................................................       |  90%
-label: spec_table
-  |                                                                         |............................................................     |  92%
-  ordinary text without R code
-
-  |                                                                         |.............................................................    |  94%
-label: additional_calcs (with options) 
-List of 1
- $ eval: logi FALSE
-
-  |                                                                         |..............................................................   |  96%
-  ordinary text without R code
-
-  |                                                                         |................................................................ |  98%
-label: longitudinal_clone_plots (with options) 
-List of 1
- $ eval: logi TRUE
-
-  |                                                                         |.................................................................| 100%
-  ordinary text without R code
-
-
-/usr/bin/pandoc +RTS -K512m -RTS cart19_intsite_analysis.archive.v1.utf8.md --to latex --from markdown+autolink_bare_uris+ascii_identifiers+tex_math_single_backslash --output /home/nobles/CART19_intsite_manuscript_analysis/reports/cart19_intsite_analysis.archive.v1.pdf --table-of-contents --toc-depth 2 --template /home/nobles/R/x86_64-pc-linux-gnu-library/3.4/rmarkdown/rmd/latex/default-1.15.2.tex --highlight-style espresso --latex-engine xelatex --variable graphics=yes 
-[ 2019-03-29 10:45:35 ] Reports generated. Analysis has completed.
-R version 3.4.0 (2017-04-21)
-Platform: x86_64-pc-linux-gnu (64-bit)
-Running under: Ubuntu 16.04.5 LTS
-
-Matrix products: default
-BLAS: /home/opt/R-3.4.0/lib/R/lib/libRblas.so
-LAPACK: /home/opt/R-3.4.0/lib/R/lib/libRlapack.so
-
-locale:
- [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C              
- [3] LC_TIME=en_US.UTF-8        LC_COLLATE=en_US.UTF-8    
- [5] LC_MONETARY=en_US.UTF-8    LC_MESSAGES=en_US.UTF-8   
- [7] LC_PAPER=en_US.UTF-8       LC_NAME=C                 
- [9] LC_ADDRESS=C               LC_TELEPHONE=C            
-[11] LC_MEASUREMENT=en_US.UTF-8 LC_IDENTIFICATION=C       
-
-attached base packages:
- [1] splines   stats4    grid      parallel  methods   stats     graphics 
- [8] grDevices utils     datasets  base     
-
-other attached packages:
- [1] caret_6.0-80                glmnet_2.0-13              
- [3] doMC_1.3.5                  iterators_1.0.9            
- [5] kableExtra_0.8.0            dnet_1.1.2                 
- [7] supraHex_1.14.0             hexbin_1.27.2              
- [9] sna_2.4                     statnet.common_4.0.0       
-[11] network_1.13.0              intergraph_2.0-2           
-[13] BSgenome_1.44.2             rtracklayer_1.36.6         
-[15] GCcontent_0.0.0.9000        intSiteRetriever_0.0.0.9000
-[17] hotROCs_0.99.5              bindrcpp_0.2.2             
-[19] spraphal_0.1.0              ggnet_0.1.0                
-[21] gintools_0.1.2              GO.db_3.4.1                
-[23] AnnotationDbi_1.38.2        Biobase_2.36.2             
-[25] KEGGREST_1.16.1             sonicLength_1.4.4          
-[27] hiAnnotator_1.11.1          geneRxCluster_1.12.0       
-[29] GenomicRanges_1.28.6        GenomeInfoDb_1.12.3        
-[31] Biostrings_2.44.2           XVector_0.16.0             
-[33] IRanges_2.10.5              S4Vectors_0.14.7           
-[35] BiocGenerics_0.22.1         forcats_0.3.0              
-[37] stringr_1.3.1               dplyr_0.7.6                
-[39] purrr_0.2.5                 readr_1.1.1                
-[41] tidyr_0.8.1                 tibble_1.4.2               
-[43] tidyverse_1.2.1             UpSetR_1.3.3               
-[45] foreach_1.4.4               BiasedUrn_1.07             
-[47] pander_0.6.1                magrittr_1.5               
-[49] knitr_1.19                  RColorBrewer_1.1-2         
-[51] gridExtra_2.3               scales_0.5.0               
-[53] ggrepel_0.7.0               ggplot2_3.0.0              
-[55] lubridate_1.7.4             vegan_2.4-6                
-[57] lattice_0.20-35             permute_0.9-4              
-[59] data.table_1.10.4-3         RMySQL_0.10.14             
-[61] DBI_0.8                     reshape2_1.4.3             
-[63] reldist_1.6-6               Matrix_1.2-9               
-[65] igraph_1.2.2               
-
-loaded via a namespace (and not attached):
-  [1] tidyselect_0.2.3                  RSQLite_2.0                      
-  [3] htmlwidgets_1.0                   BiocParallel_1.10.1              
-  [5] munsell_0.4.3                     codetools_0.2-15                 
-  [7] withr_2.1.1                       colorspace_1.3-2                 
-  [9] rstudioapi_0.7                    geometry_0.3-6                   
- [11] robustbase_0.93-3                 dimRed_0.1.0                     
- [13] labeling_0.3                      GenomeInfoDbData_0.99.0          
- [15] bit64_0.9-7                       rprojroot_1.3-2                  
- [17] ipred_0.9-7                       R6_2.2.2                         
- [19] DRR_0.0.3                         bitops_1.0-6                     
- [21] DelayedArray_0.2.7                assertthat_0.2.0                 
- [23] nnet_7.3-12                       gtable_0.2.0                     
- [25] ddalpha_1.3.4                     timeDate_3043.102                
- [27] rlang_0.2.2                       CVST_0.2-2                       
- [29] RcppRoll_0.3.0                    lazyeval_0.2.1                   
- [31] ModelMetrics_1.2.0                acepack_1.4.1                    
- [33] broom_0.5.0                       checkmate_1.8.5                  
- [35] yaml_2.1.16                       abind_1.4-5                      
- [37] modelr_0.1.2                      backports_1.1.2                  
- [39] Hmisc_4.1-1                       tools_3.4.0                      
- [41] lava_1.6.3                        Rcpp_0.12.17                     
- [43] plyr_1.8.4                        base64enc_0.1-3                  
- [45] zlibbioc_1.22.0                   RCurl_1.95-4.10                  
- [47] rpart_4.1-11                      sfsmisc_1.1-2                    
- [49] SummarizedExperiment_1.6.5        haven_1.1.2                      
- [51] cluster_2.0.6                     RSVGTipsDevice_1.0-7             
- [53] matrixStats_0.53.0                hms_0.4.2                        
- [55] evaluate_0.10.1                   XML_3.98-1.9                     
- [57] readxl_1.1.0                      compiler_3.4.0                   
- [59] crayon_1.3.4                      htmltools_0.3.6                  
- [61] mgcv_1.8-17                       Formula_1.2-2                    
- [63] magic_1.5-9                       MASS_7.3-47                      
- [65] cli_1.0.1                         bindr_0.1.1                      
- [67] gower_0.1.2                       pkgconfig_2.0.1                  
- [69] GenomicAlignments_1.12.2          foreign_0.8-67                   
- [71] recipes_0.1.3                     xml2_1.2.0                       
- [73] prodlim_2018.04.18                rvest_0.3.2                      
- [75] BSgenome.Hsapiens.UCSC.hg38_1.4.1 digest_0.6.15                    
- [77] pls_2.7-0                         graph_1.54.0                     
- [79] rmarkdown_1.8                     cellranger_1.1.0                 
- [81] htmlTable_1.11.2                  curl_3.1                         
- [83] kernlab_0.9-25                    Rsamtools_1.28.0                 
- [85] nlme_3.1-131                      jsonlite_1.5                     
- [87] viridisLite_0.2.0                 pillar_1.1.0                     
- [89] httr_1.3.1                        DEoptimR_1.0-8                   
- [91] survival_2.41-3                   glue_1.2.0                       
- [93] png_0.1-7                         bit_1.1-12                       
- [95] Rgraphviz_2.20.0                  class_7.3-14                     
- [97] stringi_1.2.4                     blob_1.1.0                       
- [99] latticeExtra_0.6-28               memoise_1.1.0                    
-[101] ape_5.0                          

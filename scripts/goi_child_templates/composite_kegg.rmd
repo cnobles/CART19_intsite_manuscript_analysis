@@ -1,0 +1,61 @@
+\newpage
+```{r kegg_tbls}
+if( nrow(kegg6) > lines_per_page ){
+  slice_cnt <- pick_slice_cnt(kegg6$grp, lines_per_page) 
+}else{
+  slice_cnt <- 1
+}
+
+kegg6_print <- kegg6 %>%
+  dplyr::mutate(
+    KEGG_Term = gsub(" - Homo sapiens (human)", "", KEGG_Term, fixed = TRUE),
+    grp = as.integer(grp)
+  ) %>%
+  dplyr::group_by(grp) %>%
+  dplyr::arrange(desc(overlap_size), desc(KEGG_size)) %>%
+  dplyr::slice(seq_len(slice_cnt)) %>%
+  dplyr::ungroup() %>%
+  dplyr::arrange(grp, desc(overlap_size), adj.p.value) %>%
+  dplyr::select(
+    grp, path_id, KEGG_Term, KEGG_size, overlap_size, adj.p.value
+  ) %>%
+  dplyr::rename(
+    "Group" = grp, "KEGG ID" = path_id, "Description" = KEGG_Term, 
+    "Term Size" = KEGG_size, "Gene Count" = overlap_size, 
+    "Adjusted P-value" = adj.p.value
+  )
+
+if( nrow(kegg6_print) > 1){
+  
+  kable(
+    kegg6_print, format = "latex", booktabs = TRUE, 
+    align = c("c", "c", "l", "c", "c", "c"),
+    caption = paste0("KEGG Pathway analysis. Top ", slice_cnt, " per group.",
+                     " Total genes considered: ", 
+                     length(which(unique(df6$gene_name) %in% k_path_df$gene_sym)))
+    ) %>%
+    kableExtra::kable_styling(
+      latex_options = "hold_position", font_size = 10, full_width = TRUE
+    ) %>%
+    kableExtra::column_spec(2, width = "7em") %>%
+    kableExtra::column_spec(3, width = "21em") %>%
+    kableExtra::collapse_rows(1, latex_hline = "major")
+  
+}else{
+
+  kable(
+    kegg6_print, format = "latex", booktabs = TRUE, 
+    align = c("c", "c", "l", "c", "c", "c"),
+    caption = paste0("KEGG Pathway analysis. Top ", slice_cnt, " per group.",
+                     " Total genes considered: ", 
+                     length(which(unique(df6$gene_name) %in% k_path_df$gene_sym)))
+    ) %>%
+    kableExtra::kable_styling(
+      latex_options = "hold_position", font_size = 10, full_width = TRUE
+    ) %>%
+    kableExtra::column_spec(2, width = "7em") %>%
+    kableExtra::column_spec(3, width = "21em") %>%
+    kableExtra::collapse_rows(1, latex_hline = "major")
+  
+}
+```

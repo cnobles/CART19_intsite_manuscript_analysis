@@ -84,13 +84,18 @@ if(
   
   # Supporting functions ---------------------------------------------------------
   jackIID <- function(ids, jrep = NULL, nrep = 10L){
-    if(is.null(jrep)) jrep <- sample(rep(1:nrep,length=length(ids)))
+    
+    if( is.null(jrep) ) jrep <- sample(rep(seq_len(nrep), length = length(ids)))
+    
     est0 <- vegan::estimateR(table(ids))
     jackrep <- jrep
     urepl <- unique(jrep)
+    
     jackmat <- sapply(
-      urepl, function(x) vegan::estimateR(table(ids[jackrep!=x])))
-    pseudo <- length(urepl)*est0 - (length(urepl)-1)*jackmat
+      urepl, function(x) vegan::estimateR(table(ids[jackrep!=x]))
+    )
+    
+    pseudo <- length(urepl) * est0 - (length(urepl)-1) * jackmat
     rowMeans(pseudo)
   }
   
@@ -101,7 +106,7 @@ if(
   calculateChao <- function(ids, biased=TRUE){
     if ( !biased ) { #regular Chao
       cluster.tab <- table(ids)
-      return(round(estimateR(cluster.tab)["S.chao1"]))
+      return(round(vegan::estimateR(cluster.tab)["S.chao1"]))
     }
     round(jackIID(ids)["S.chao1"])
   }

@@ -18,7 +18,7 @@ if( Rv < 340){
 r_libs <- c(
   "igraph", "Matrix", "parallel", "reldist", "reshape2", "RMySQL", "data.table",
   "vegan", "lubridate", "ggrepel", "scales", "grid", "gridExtra", 
-  "RColorBrewer", "knitr", "magrittr", "pander", "BiasedUrn", "foreach", 
+  "RColorBrewer", "knitr", "magrittr", "kableExtra", "BiasedUrn", "foreach", 
   "UpSetR", "tidyverse"
 )
 

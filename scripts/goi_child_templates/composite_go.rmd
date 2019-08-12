@@ -1,0 +1,56 @@
+\newpage
+```{r all_GO_tbls}
+if( nrow(go6) > lines_per_page ){
+  slice_cnt <- pick_slice_cnt(go6$grp, lines_per_page)
+}else{
+  slice_cnt <- 1
+}
+
+go6_print <- go6 %>%
+  dplyr::group_by(grp) %>%
+  dplyr::arrange(desc(overlap_size), desc(GO_size)) %>%
+  dplyr::slice(seq_len(slice_cnt)) %>%  
+  dplyr::ungroup() %>%
+  dplyr::arrange(grp, desc(overlap_size), adj.p.value) %>%
+  dplyr::select(grp, GO_ID, GO_Term, GO_size, overlap_size, adj.p.value) %>%
+  dplyr::rename(
+    "Group" = grp, "GO ID" = GO_ID, "GO Term" = GO_Term, 
+    "Term Size" = GO_size, "Gene Count" = overlap_size, 
+    "Adjusted P-value" = adj.p.value
+  )
+
+if( nrow(go6_print) > 1){
+  
+  kable(
+      go6_print, format = "latex", booktabs = TRUE,
+      align = c("c", "c", "l", "c", "c", "c"),
+      caption = paste0(
+        "GO Biological Process. Top ", slice_cnt, " per group.",
+        " Total genes considered: ", 
+        length(which(unique(df6$gene_name) %in% all_GOBP_df$gene_sym)))
+    ) %>%
+    kableExtra::kable_styling(
+      latex_options = "hold_position", font_size = 10, full_width = TRUE
+    ) %>%
+    kableExtra::column_spec(2, width = "6em") %>%
+    kableExtra::column_spec(3, width = "24em") %>%
+    kableExtra::collapse_rows(1, latex_hline = "major")
+
+}else{
+  
+  kable(
+      go6_print, format = "latex", booktabs = TRUE,
+      align = c("c", "c", "l", "c", "c", "c"),
+      caption = paste0(
+        "GO Biological Process. Top ", slice_cnt, " per group.",
+        " Total genes considered: ", 
+        length(which(unique(df6$gene_name) %in% all_GOBP_df$gene_sym)))
+    ) %>%
+    kableExtra::kable_styling(
+      latex_options = "hold_position", font_size = 10, full_width = TRUE
+    ) %>%
+    kableExtra::column_spec(2, width = "6em") %>%
+    kableExtra::column_spec(3, width = "24em")
+  
+}
+```

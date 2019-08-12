@@ -1,0 +1,16 @@
+\newpage
+## Integration Frequency (Enrichment)
+
+```{r enrichment_tbl}
+kable(
+    head(df1.2, n = 50), format = "latex", booktabs = TRUE, 
+    caption = paste(
+      "Table of top", nrow(head(df1.2, n = 50)), 
+      "genes with the most frequent clonal enrichment."), 
+    align = "c", digits = 1
+  ) %>%
+  kableExtra::kable_styling(
+    latex_options = c("hold_position"),
+    font_size = 9
+  )
+```

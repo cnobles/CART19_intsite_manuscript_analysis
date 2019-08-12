@@ -61,7 +61,7 @@ refGenes <- readRDS(file.path(utilsDir, "hg38.refSeq.rds"))
 
 refGenes <- refGenes[
   seqnames(refGenes) %in% paste0("chr", c(1:22, "X", "Y", "M"))
-  ]
+]
 
 oncoGenesData <- read.delim(
   file.path(utilsDir, "allOnco.human.v3.tsv"),
@@ -181,6 +181,20 @@ std_clin_patients <- patient_data %>%
 
 CR_pats <- patient_data$patient[patient_data$determinant_response == "CR_PRtd"]
 NR_pats <- patient_data$patient[patient_data$determinant_response == "PR_NR"]
+
+ALL_pats <- patient_data$patient[
+  patient_data$disease %in% c("pALL", "aALL") & 
+    patient_data$patient %in% std_clin_patients
+]
+
+CLL_pats <- patient_data$patient[
+  patient_data$disease == "CLL" & patient_data$patient %in% std_clin_patients
+]
+
+Std_CR_pats <- patient_data$patient[
+  patient_data$patient %in% CR_pats & 
+    patient_data$patient %in% std_clin_patients
+]
 
 ## Load integration site analysis data ----
 data_files <- list.files(outputDir)
